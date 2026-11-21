@@ -1,0 +1,90 @@
+Button.guild-building {
+    width: 24%;
+    min-width: 0;
+    min-height: 192px;
+    margin: 0 1% 10px 0;
+    padding: 10px 4px 8px;
+    align-items: center;
+    justify-content: flex-end;
+    background-color: #ecd0a1;
+    border-width: 1px;
+    border-color: #a87b48;
+    border-bottom-width: 3px;
+    border-bottom-color: #785334;
+    border-radius: 9px;
+}
+
+Button.guild-building.headquarters {
+    background-color: #f3dbad;
+    border-color: #a3712e;
+    border-top-width: 2px;
+    border-bottom-width: 3px;
+}
+
+Button.guild-building:hover, Button.guild-building:focus { background-color: #f7e1b6; }
+Button.guild-building:active { background-color: #d8b477; }
+Button.guild-building.drop-target { background-color: #f7e1b6; border-color: #a46a21; }
+Button.guild-building.drop-hover { background-color: #ffd98b; border-color: #825014; }
+.building-icon {
+    width: 100%;
+    max-width: 138px;
+    height: 126px;
+    flex-shrink: 0;
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: center;
+}
+.building-title {
+    align-self: stretch;
+    color: var(--text);
+    font-size: 16px;
+    -unity-font-style: bold;
+    -unity-text-align: middle-center;
+    white-space: normal;
+    margin-top: 5px;
+}
+.building-occupancy {
+    color: #613819;
+    background-color: #d9b77d;
+    border-radius: 4px;
+    padding: 2px 7px;
+    font-size: 12px;
+    -unity-font-style: bold;
+    margin-top: 3px;
+}
+
+.building-icon--Headquarters { background-image: url("Buildings/Headquarters.png"); }
+.building-icon--Recruiter { background-image: url("Buildings/Recruiter.png"); }
+.building-icon--Market { background-image: url("Buildings/Market.png"); }
+.building-icon--Infirmary { background-image: url("Buildings/Infirmary.png"); }
+.building-icon--Tavern { background-image: url("Buildings/Tavern.png"); }
+.building-icon--Workshop { background-image: url("Buildings/Workshop.png"); }
+.building-icon--Forge { background-image: url("Buildings/Forge.png"); }
+.building-icon--TrainingRoom { background-image: url("Buildings/TrainingRoom.png"); }
+
+.hero-card { padding: 7px 9px 9px; border-color: #b28a58; }
+.hero-card:hover, .hero-card:focus { background-color: #f9e3bb; border-color: #a06b2e; }
+.hero-card.selected { border-color: #98601b; background-color: #fff0cf; }
+.hero-name {
+    flex-grow: 1;
+    flex-basis: 0;
+    min-width: 0;
+    color: var(--text);
+    font-size: 15px;
+    -unity-font-style: bold;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-right: 4px;
+}
+.hero-identity { font-size: 12px; color: var(--muted); white-space: normal; margin: 0; }
+.hero-status { font-size: 11px; color: #775027; margin: 0 0 3px; }
+.hero-meters { flex-direction: row; flex-wrap: wrap; }
+.hero-meter-row { width: 48%; margin: 1px 2% 1px 0; flex-direction: row; align-items: center; }
+.hero-meter-label { width: 42px; flex-shrink: 0; margin: 0; color: #593e2b; font-size: 10px; }
+.hero-meter-track { height: 4px; flex-grow: 1; flex-basis: 0; background-color: #bb9b71; border-radius: 2px; overflow: hidden; }
+.hero-meter-fill { height: 100%; border-radius: 2px; }
+.hero-health { background-color: #537147; }
+.hero-fatigue { background-color: #a84520; }
+.hero-morale { background-color: #91601f; }
+.hero-loyalty { background-color: #74558f; }

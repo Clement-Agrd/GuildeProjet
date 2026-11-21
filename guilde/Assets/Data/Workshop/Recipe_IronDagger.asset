@@ -1,0 +1,33 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 306f3889615b4c4b96e10b8a0ffe717d, type: 3}
+  m_Name: Recipe_IronDagger
+  m_EditorClassIdentifier: Assembly-CSharp::CraftRecipeSO
+  recipeName: Dague de fer
+  description: 
+  requiredJob: 1
+  requiredJobLevel: 0
+  isUnlocked: 1
+  inputResources:
+  - resource: {fileID: 11400000, guid: bd1eb15bbdcc4f840b2fd8492661ee4c, type: 2}
+    amount: 1
+  - resource: {fileID: 11400000, guid: 7ae4850f0a5a1084f95f8f55172b8ad9, type: 2}
+    amount: 1
+  outputResource: {fileID: 0}
+  outputResourceAmount: 1
+  outputEquipment: {fileID: 11400000, guid: 05228b1cc99c3314fa04dc6007dca371, type: 2}
+  baseCraftDuration: 5
+  baseGoldValue: 50
+  normalChance: 0.7
+  rareChance: 0.2
+  epicChance: 0.08
+  legendaryChance: 0.02

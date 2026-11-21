@@ -1,0 +1,86 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: dcdd73b72690476db2e9443274caf1c4, type: 3}
+  m_Name: Job_Craftsman
+  m_EditorClassIdentifier: Assembly-CSharp::JobDefinitionSO
+  jobName: Artisan
+  jobType: 2
+  associatedBuilding: 3
+  icon: {fileID: 0}
+  description: 
+  primaryStatWeights:
+  - stat: 2
+    weight: 0.6
+  - stat: 0
+    weight: 0.4
+  maxLevel: 10
+  levelData:
+  - experienceRequired: 100
+    qualityBonus: 0.025
+    efficiencyBonus: 0.05
+    outputMultiplier: 1.05
+    salaryMultiplier: 1.1
+    levelDescription: 
+  - experienceRequired: 160
+    qualityBonus: 0.05
+    efficiencyBonus: 0.1
+    outputMultiplier: 1.1
+    salaryMultiplier: 1.2
+    levelDescription: 
+  - experienceRequired: 220
+    qualityBonus: 0.075
+    efficiencyBonus: 0.15
+    outputMultiplier: 1.15
+    salaryMultiplier: 1.3
+    levelDescription: 
+  - experienceRequired: 280
+    qualityBonus: 0.1
+    efficiencyBonus: 0.2
+    outputMultiplier: 1.2
+    salaryMultiplier: 1.4
+    levelDescription: 
+  - experienceRequired: 340
+    qualityBonus: 0.125
+    efficiencyBonus: 0.25
+    outputMultiplier: 1.25
+    salaryMultiplier: 1.5
+    levelDescription: 
+  - experienceRequired: 400
+    qualityBonus: 0.15
+    efficiencyBonus: 0.3
+    outputMultiplier: 1.3
+    salaryMultiplier: 1.6
+    levelDescription: 
+  - experienceRequired: 460
+    qualityBonus: 0.175
+    efficiencyBonus: 0.35
+    outputMultiplier: 1.35
+    salaryMultiplier: 1.7
+    levelDescription: 
+  - experienceRequired: 520
+    qualityBonus: 0.2
+    efficiencyBonus: 0.4
+    outputMultiplier: 1.4
+    salaryMultiplier: 1.8
+    levelDescription: 
+  - experienceRequired: 580
+    qualityBonus: 0.22500001
+    efficiencyBonus: 0.45000002
+    outputMultiplier: 1.45
+    salaryMultiplier: 1.9
+    levelDescription: 
+  - experienceRequired: 640
+    qualityBonus: 0.25
+    efficiencyBonus: 0.5
+    outputMultiplier: 1.5
+    salaryMultiplier: 2
+    levelDescription: 

@@ -8,34 +8,30 @@ public class AdventurerRaceSO : ScriptableObject
     [Header("Identité")]
     public string raceName;
     [TextArea(2, 4)] public string description;
-    public Race raceType;
+    public Race   raceType;
     public Sprite icon;
 
-    [Header("Modificateurs de stats primaires (additif)")]
-    public int forceMod        = 0;
-    public int agilityMod      = 0;
-    public int intelligenceMod = 0;
-    public int enduranceMod    = 0;
-    public int charismaMod     = 0;
-    public int dexterityMod    = 0;
+    [Header("Modificateurs de stats primaires")]
+    public List<PrimaryStatModifier> statModifiers = new();
 
     [Header("Relations inter-raciales")]
-    [Tooltip("Modificateur sur la valeur d'affinité initiale avec les membres d'une autre race")]
     public List<RaceAffinityModifier> raceRelationModifiers = new();
 
     [Header("Traits raciaux automatiques")]
     [Tooltip("Ajoutés à tout aventurier de cette race à la création")]
     public List<TraitSO> racialTraits = new();
 
-    /// <summary>Applique les modificateurs raciaux sur un AdventurerStats existant.</summary>
     public void ApplyToStats(AdventurerStats stats)
     {
-        stats.force        += forceMod;
-        stats.agility      += agilityMod;
-        stats.intelligence += intelligenceMod;
-        stats.endurance    += enduranceMod;
-        stats.charisma     += charismaMod;
-        stats.dexterity    += dexterityMod;
+        foreach (var m in statModifiers)
+            stats.AddToPrimary(m.stat, m.value);
+    }
+
+    public int GetModifier(PrimaryStat stat)
+    {
+        foreach (var m in statModifiers)
+            if (m.stat == stat) return m.value;
+        return 0;
     }
 
     public int GetAffinityModifierWith(Race otherRace)
@@ -44,6 +40,13 @@ public class AdventurerRaceSO : ScriptableObject
             if (mod.targetRace == otherRace) return mod.affinityStartModifier;
         return 0;
     }
+}
+
+[Serializable]
+public class PrimaryStatModifier
+{
+    public PrimaryStat stat;
+    public int         value;
 }
 
 [Serializable]

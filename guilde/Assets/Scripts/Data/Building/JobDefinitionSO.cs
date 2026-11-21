@@ -6,47 +6,40 @@ using UnityEngine;
 public class JobDefinitionSO : ScriptableObject
 {
     [Header("Identité")]
-    public string jobName;
-    public JobType jobType;
+    public string       jobName;
+    public JobType      jobType;
     public BuildingType associatedBuilding;
-    public Sprite icon;
+    public Sprite       icon;
     [TextArea(1, 3)] public string description;
 
     [Header("Stats favorisées (poids, somme idéale = 1)")]
-    [Range(0f, 1f)] public float forceWeight        = 0f;
-    [Range(0f, 1f)] public float agilityWeight      = 0f;
-    [Range(0f, 1f)] public float intelligenceWeight = 0f;
-    [Range(0f, 1f)] public float enduranceWeight    = 0f;
-    [Range(0f, 1f)] public float charismaWeight     = 0f;
-    [Range(0f, 1f)] public float dexterityWeight    = 0f;
+    public List<StatWeight> primaryStatWeights = new();
 
     [Header("Progression")]
     public int maxLevel = 10;
     [Tooltip("10 entrées — index 0 = niveau 1")]
     public List<JobLevelData> levelData = new();
 
-    // ── Helpers ─────────────────────────────────────────────────────────────
-
-    /// <summary>
-    /// Score de performance brut basé sur les stats de l'aventurier.
-    /// Utilisé par JobManager pour calculer vitesse et qualité de production.
-    /// </summary>
     public float CalculatePerformanceScore(AdventurerStats stats)
     {
-        return stats.force        * forceWeight
-             + stats.agility      * agilityWeight
-             + stats.intelligence * intelligenceWeight
-             + stats.endurance    * enduranceWeight
-             + stats.charisma     * charismaWeight
-             + stats.dexterity    * dexterityWeight;
+        float score = 0f;
+        foreach (var w in primaryStatWeights)
+            score += stats.GetPrimary(w.stat) * w.weight;
+        return score;
     }
 
-    /// <summary>Niveau 0 → données vierges (aucun bonus). Niveau 1+ → entrée du tableau.</summary>
     public JobLevelData GetLevelData(int level)
     {
         if (level <= 0 || levelData.Count == 0) return new JobLevelData();
         return levelData[Mathf.Clamp(level - 1, 0, levelData.Count - 1)];
     }
+}
+
+[Serializable]
+public class StatWeight
+{
+    public PrimaryStat stat;
+    [Range(0f, 1f)] public float weight;
 }
 
 // ── Data par niveau ──────────────────────────────────────────────────────────
@@ -107,8 +100,8 @@ public class JobInstance
     public bool IsUntrained => currentLevel == 0;
 
     // Raccourcis sur les données du niveau courant
-    public float GetQualityBonus(JobDefinitionSO def)      => def.GetLevelData(currentLevel).qualityBonus;
-    public float GetEfficiencyBonus(JobDefinitionSO def)   => def.GetLevelData(currentLevel).efficiencyBonus;
-    public float GetOutputMultiplier(JobDefinitionSO def)  => def.GetLevelData(currentLevel).outputMultiplier;
-    public float GetSalaryMultiplier(JobDefinitionSO def)  => def.GetLevelData(currentLevel).salaryMultiplier;
+    public float GetQualityBonus(JobDefinitionSO def)      => def != null ? def.GetLevelData(currentLevel).qualityBonus : 0f;
+    public float GetEfficiencyBonus(JobDefinitionSO def)   => def != null ? def.GetLevelData(currentLevel).efficiencyBonus : 0f;
+    public float GetOutputMultiplier(JobDefinitionSO def)  => def != null ? def.GetLevelData(currentLevel).outputMultiplier : 1f;
+    public float GetSalaryMultiplier(JobDefinitionSO def)  => def != null ? def.GetLevelData(currentLevel).salaryMultiplier : 1f;
 }

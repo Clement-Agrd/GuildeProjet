@@ -1,4 +1,4 @@
-﻿using UnityEngine;
+using UnityEngine;
 
 // ─── Base ─────────────────────────────────────────────────────────────────────
 
@@ -27,7 +27,6 @@ public class IdleState : AdventurerState
     {
         // Récupération passive lente
         Owner.stats.fatigue -= 3f * deltaTime;
-        Owner.stats.stress  -= 1f * deltaTime;
         Owner.stats.ClampSecondaryStats();
     }
 }
@@ -38,18 +37,6 @@ public class WorkingState : AdventurerState
 {
     public override AdventurerStateType StateType => AdventurerStateType.Working;
     public WorkingState(Adventurer owner) : base(owner) { }
-
-    public override void Tick(float deltaTime)
-    {
-        // Fatigue montante — atténuée par Endurance
-        float rate = Mathf.Max(0.5f, 5f - Owner.stats.endurance * 0.03f);
-        Owner.stats.fatigue += rate * deltaTime;
-        Owner.stats.ClampSecondaryStats();
-
-        // Fatigue critique → repos forcé
-        if (Owner.stats.fatigue >= 95f)
-            Owner.SetResting();
-    }
 }
 
 // ─── OnMission ────────────────────────────────────────────────────────────────
@@ -82,10 +69,9 @@ public class RestingState : AdventurerState
     {
         float recovery = Owner.GetTraitMultiplier(TraitEffectType.FatigueRecovery_Multiplier);
         Owner.stats.fatigue -= 10f * recovery * deltaTime;
-        Owner.stats.stress  -=  5f * recovery * deltaTime;
         Owner.stats.ClampSecondaryStats();
 
-        if (Owner.stats.fatigue <= 10f && Owner.stats.stress <= 10f)
+        if (Owner.stats.fatigue <= 10f)
             Owner.TransitionToState(new IdleState(Owner));
     }
 }
@@ -98,11 +84,15 @@ public class InjuredState : AdventurerState
 
     private float _progress;
     private readonly float _totalTime;
+    private readonly float _initialHealthFraction;
 
-    public float HealingProgress => _totalTime > 0f ? _progress / _totalTime : 1f;
+    public float HealthFraction => Mathf.Lerp(_initialHealthFraction, 1f, _totalTime > 0f ? _progress / _totalTime : 1f);
 
-    public InjuredState(Adventurer owner, float healingTime = 60f) : base(owner)
-        => _totalTime = healingTime;
+    public InjuredState(Adventurer owner, float healingTime = 60f, float initialHealthFraction = 0.25f) : base(owner)
+    {
+        _totalTime = Mathf.Max(0f, healingTime);
+        _initialHealthFraction = Mathf.Clamp01(initialHealthFraction);
+    }
 
     public override void Enter() => Owner.ClearAssignment();
 

@@ -1,0 +1,76 @@
+<ui:UXML xmlns:ui="UnityEngine.UIElements">
+    <ui:Style src="GuildWorkshop.uss" />
+    <ui:Style src="HeroDetail.uss" />
+    <ui:Style src="Courtyard.uss" />
+    <ui:VisualElement name="workshop-screen" class="screen">
+        <ui:VisualElement class="topbar">
+            <ui:VisualElement class="brand">
+                <ui:Label text="LA GUILDE" class="brand-title" />
+                <ui:Label text="LE QUARTIER GÉNÉRAL" class="eyebrow" />
+            </ui:VisualElement>
+            <ui:VisualElement name="resources" class="resource-strip" />
+            <ui:VisualElement class="treasury">
+                <ui:Label text="TRÉSORERIE" class="eyebrow" />
+                <ui:Label name="gold" text="500 or" class="gold" />
+            </ui:VisualElement>
+            <ui:Button name="open-journal" text="Journal" tooltip="Ouvrir le journal de la guilde" class="journal-open" />
+            <ui:Button name="guild-home" text="Guilde" tooltip="Revenir à la cour de la guilde" class="guild-home" />
+            <ui:VisualElement class="time-controls">
+                <ui:Label name="clock" text="00:00" class="clock" />
+                <ui:VisualElement class="row">
+                    <ui:Toggle name="auto-pause" text="Auto" tooltip="Mettre le jeu en pause à chaque nouveau message du journal" class="auto-pause" />
+                    <ui:Button name="pause" text="Pause" tooltip="Mettre en pause ou reprendre (Espace)" />
+                    <ui:Button name="speed-1" text="×1" />
+                    <ui:Button name="speed-2" text="×2" />
+                    <ui:Button name="speed-3" text="×3" />
+                </ui:VisualElement>
+            </ui:VisualElement>
+        </ui:VisualElement>
+        <ui:VisualElement class="main">
+            <ui:VisualElement class="headquarters-panel">
+                <ui:VisualElement class="section-heading">
+                    <ui:VisualElement>
+                        <ui:Label text="La cour de la guilde" class="hero-title" />
+                    </ui:VisualElement>
+                </ui:VisualElement>
+                <ui:VisualElement class="courtyard-columns">
+                    <ui:VisualElement name="map-container" class="building-grid" />
+                    <ui:ScrollView class="journal panel">
+                        <ui:Label text="JOURNAL DE LA GUILDE" class="eyebrow" />
+                        <ui:VisualElement name="journal-entries" />
+                    </ui:ScrollView>
+                </ui:VisualElement>
+                <ui:Label name="objective" class="objective wrap" />
+            </ui:VisualElement>
+            <ui:VisualElement name="detail-panel" class="detail-panel panel">
+                <ui:Button name="equipment-back" text="Retour à la cour" class="equipment-back quiet" />
+                <ui:Label name="detail-eyebrow" text="BIENVENUE À LA GUILDE" class="eyebrow" />
+                <ui:Label name="detail-title" text="Le recrutement" class="hero-title" />
+                <ui:ScrollView name="detail-content" class="grow" horizontal-scroller-visibility="Hidden" />
+            </ui:VisualElement>
+            <ui:VisualElement class="roster-panel panel">
+                <ui:VisualElement class="section-heading">
+                    <ui:Label text="Aventuriers" class="title" />
+                    <ui:Label name="roster-count" text="0" class="badge" />
+                </ui:VisualElement>
+                <ui:ScrollView name="roster" class="grow" horizontal-scroller-visibility="Hidden" />
+                <ui:Button name="open-equipment" text="Équipement &amp; réserves" class="secondary" />
+            </ui:VisualElement>
+        </ui:VisualElement>
+        <ui:VisualElement class="footer">
+            <ui:Label name="status" text="Votre première commande vous attend." class="muted" />
+            <ui:Button name="new-game" text="Nouvelle partie" class="quiet" />
+        </ui:VisualElement>
+        <ui:Label name="drag-ghost" class="drag-ghost" picking-mode="Ignore" />
+        <ui:VisualElement name="reset-overlay" class="overlay">
+            <ui:VisualElement class="modal panel">
+                <ui:Label text="Recommencer la guilde ?" class="hero-title" />
+                <ui:Label text="La partie en cours sera remise à zéro. La sauvegarde n’est pas encore disponible dans ce premier jalon." class="wrap muted" />
+                <ui:VisualElement class="row">
+                    <ui:Button name="cancel-reset" text="Continuer ma partie" />
+                    <ui:Button name="confirm-reset" text="Recommencer" class="primary" />
+                </ui:VisualElement>
+            </ui:VisualElement>
+        </ui:VisualElement>
+    </ui:VisualElement>
+</ui:UXML>

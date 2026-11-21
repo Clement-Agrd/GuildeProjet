@@ -4,55 +4,91 @@ using UnityEngine;
 [Serializable]
 public class AdventurerStats
 {
-    [Header("Stats primaires (1-100)")]
+    [Header("Stats primaires (1–100)")]
+    public int vitalite     = 10;
+    public int resistance   = 10;
     public int force        = 10;
-    public int agility      = 10;
     public int intelligence = 10;
-    public int endurance    = 10;
-    public int charisma     = 10;
-    public int dexterity    = 10;
+    public int charisme     = 10;
+    public int sagesse      = 10;
+    public int agilite      = 10;
+    public int chance       = 10;
 
-    [Header("Stats secondaires (0-100)")]
+    [Header("Stats secondaires (0–100)")]
     public float moral   = 70f;
     public float fatigue = 0f;
-    public float loyalty = 50f;
-    public float stress  = 0f;
+    public float loyaute = 50f;
 
     [Header("Progression")]
-    public int level                = 1;
-    public int experience           = 0;
+    public int level                 = 1;
+    public int experience            = 0;
     public int experienceToNextLevel = 100;
 
     public AdventurerStats() { }
 
-    // Copy constructor — utilisé pour instancier à partir d'un template SO
-    public AdventurerStats(AdventurerStats source)
+    public AdventurerStats(AdventurerStats src)
     {
-        force        = source.force;
-        agility      = source.agility;
-        intelligence = source.intelligence;
-        endurance    = source.endurance;
-        charisma     = source.charisma;
-        dexterity    = source.dexterity;
-        moral        = source.moral;
-        fatigue      = source.fatigue;
-        loyalty      = source.loyalty;
-        stress       = source.stress;
-        level        = source.level;
-        experience   = source.experience;
-        experienceToNextLevel = source.experienceToNextLevel;
+        vitalite     = src.vitalite;
+        resistance   = src.resistance;
+        force        = src.force;
+        intelligence = src.intelligence;
+        charisme     = src.charisme;
+        sagesse      = src.sagesse;
+        agilite      = src.agilite;
+        chance       = src.chance;
+        moral        = src.moral;
+        fatigue      = src.fatigue;
+        loyaute      = src.loyaute;
+        level        = src.level;
+        experience   = src.experience;
+        experienceToNextLevel = src.experienceToNextLevel;
     }
 
-    // Scores composites utilisés dans le calcul des missions
-    public int GetCombatScore()  => (force + agility + dexterity) / 3;
-    public int GetHarvestScore() => (endurance + dexterity) / 2;
-    public int GetSocialScore()  => (charisma + intelligence) / 2;
+    // ─── Accès générique ──────────────────────────────────────────────────────
 
-    // Pénalités appliquées aux rolls de mission (0 = aucune, 1 = -100%)
+    public int GetPrimary(PrimaryStat stat) => stat switch
+    {
+        PrimaryStat.Vitalite     => vitalite,
+        PrimaryStat.Resistance   => resistance,
+        PrimaryStat.Force        => force,
+        PrimaryStat.Intelligence => intelligence,
+        PrimaryStat.Charisme     => charisme,
+        PrimaryStat.Sagesse      => sagesse,
+        PrimaryStat.Agilite      => agilite,
+        PrimaryStat.Chance       => chance,
+        _                        => 0
+    };
+
+    public void AddToPrimary(PrimaryStat stat, int value)
+    {
+        switch (stat)
+        {
+            case PrimaryStat.Vitalite:     vitalite     += value; break;
+            case PrimaryStat.Resistance:   resistance   += value; break;
+            case PrimaryStat.Force:        force        += value; break;
+            case PrimaryStat.Intelligence: intelligence += value; break;
+            case PrimaryStat.Charisme:     charisme     += value; break;
+            case PrimaryStat.Sagesse:      sagesse      += value; break;
+            case PrimaryStat.Agilite:      agilite      += value; break;
+            case PrimaryStat.Chance:       chance       += value; break;
+        }
+    }
+
+    // ─── Scores composites pour le calcul des missions ────────────────────────
+
+    public int GetPhysicalScore() => (force + vitalite + resistance) / 3;
+    public int GetMagicalScore()  => (intelligence + charisme + sagesse) / 3;
+    public int GetHarvestScore()  => (vitalite + agilite) / 2;
+    public int GetSocialScore()   => (charisme + sagesse) / 2;
+
+    // ─── Pénalités ────────────────────────────────────────────────────────────
+
     public float GetFatiguePenalty() => fatigue > 70f ? (fatigue - 70f) / 30f : 0f;
     public float GetMoralPenalty()   => moral   < 30f ? (30f - moral)   / 30f : 0f;
 
-    // Retourne true si l'aventurier vient de monter de niveau
+    // ─── Progression ──────────────────────────────────────────────────────────
+
+    // Retourne true si montée de niveau
     public bool AddExperience(int amount)
     {
         experience += amount;
@@ -70,7 +106,6 @@ public class AdventurerStats
     {
         moral   = Mathf.Clamp(moral,   0f, 100f);
         fatigue = Mathf.Clamp(fatigue, 0f, 100f);
-        loyalty = Mathf.Clamp(loyalty, 0f, 100f);
-        stress  = Mathf.Clamp(stress,  0f, 100f);
+        loyaute = Mathf.Clamp(loyaute, 0f, 100f);
     }
 }

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -10,12 +10,10 @@ public class Adventurer
     public string adventurerName;
     public int    age;
 
-    // IDs pour save/load (les SO refs ne se sérialisent pas)
     public string       classId;
     public string       raceId;
     public List<string> traitIds = new();
 
-    // Refs runtime — non sérialisées, reconstruites au chargement par AdventurerManager
     [NonSerialized] public AdventurerClassSO adventurerClass;
     [NonSerialized] public AdventurerRaceSO  adventurerRace;
     [NonSerialized] public List<TraitSO>     traits = new();
@@ -23,30 +21,99 @@ public class Adventurer
     // ─── Stats ────────────────────────────────────────────────────────────────
     public AdventurerStats stats = new();
 
-    // ─── Métiers ──────────────────────────────────────────────────────────────
-    // Tous les aventuriers ont accès aux 6 métiers dès leur création (niveau 0)
-    public List<JobInstance> jobInstanceList = new(); // sérialisable
+    public List<EquippedItemSlot> equippedItems = new();
+    [NonSerialized] private Func<string, EquipmentInstance> _resolveEquipment;
 
+    public void BindEquipmentResolver(Func<string, EquipmentInstance> resolver) => _resolveEquipment = resolver;
+
+    public string GetEquipmentId(EquipmentSlot slot)
+        => equippedItems.Find(entry => entry.slot == slot)?.equipmentId;
+
+    public void SetEquippedItem(EquipmentSlot slot, string equipmentId)
+    {
+        equippedItems.RemoveAll(entry => entry.slot == slot);
+        if (!string.IsNullOrEmpty(equipmentId))
+            equippedItems.Add(new EquippedItemSlot { slot = slot, equipmentId = equipmentId });
+    }
+
+    public int GetEffectivePrimary(PrimaryStat stat)
+    {
+        TraitEffectType effect = stat switch
+        {
+            PrimaryStat.Vitalite => TraitEffectType.Vitalite_Multiplier,
+            PrimaryStat.Resistance => TraitEffectType.Resistance_Multiplier,
+            PrimaryStat.Force => TraitEffectType.Force_Multiplier,
+            PrimaryStat.Intelligence => TraitEffectType.Intelligence_Multiplier,
+            PrimaryStat.Charisme => TraitEffectType.Charisme_Multiplier,
+            PrimaryStat.Sagesse => TraitEffectType.Sagesse_Multiplier,
+            PrimaryStat.Agilite => TraitEffectType.Agilite_Multiplier,
+            _ => TraitEffectType.Chance_Multiplier
+        };
+        return Mathf.Clamp(Mathf.RoundToInt(stats.GetPrimary(stat) * GetTraitMultiplier(effect)), 1, 100);
+    }
+
+    public AdventurerStats GetEffectiveStats()
+    {
+        var result = new AdventurerStats(stats);
+        foreach (PrimaryStat stat in Enum.GetValues(typeof(PrimaryStat)))
+            result.AddToPrimary(stat, GetEffectivePrimary(stat) - result.GetPrimary(stat));
+        result.moral += GetTraitFlat(TraitEffectType.Moral_Flat);
+        result.fatigue += GetTraitFlat(TraitEffectType.Fatigue_Flat);
+        result.loyaute += GetTraitFlat(TraitEffectType.Loyaute_Flat);
+        result.ClampSecondaryStats();
+        return result;
+    }
+
+    // replacement sert à prévisualiser un changement sans modifier l'équipement ni l'inventaire.
+    public CombatStats GetCombatStats(EquipmentInstance replacement = null)
+    {
+        var result = CombatStats.FromPrimary(GetEffectiveStats());
+        float damageMultiplier = 1f;
+        float accuracyMultiplier = 1f;
+        foreach (var entry in equippedItems)
+        {
+            if (replacement?.definition != null && entry.slot == replacement.definition.slot) continue;
+            ApplyEquipment(_resolveEquipment?.Invoke(entry.equipmentId), result, ref damageMultiplier, ref accuracyMultiplier);
+        }
+        ApplyEquipment(replacement, result, ref damageMultiplier, ref accuracyMultiplier);
+        result.attaquePhysique = Mathf.RoundToInt(result.attaquePhysique * damageMultiplier);
+        result.attaqueMagique = Mathf.RoundToInt(result.attaqueMagique * damageMultiplier);
+        result.precision *= accuracyMultiplier;
+        result.Clamp();
+        return result;
+    }
+
+    private void ApplyEquipment(EquipmentInstance item, CombatStats result, ref float damageMultiplier, ref float accuracyMultiplier)
+    {
+        if (item?.definition == null || item.IsBroken) return;
+        item.ApplyToCombatStats(result);
+        if (item.definition.slot != EquipmentSlot.MainWeapon || adventurerClass == null
+            || adventurerClass.MastersWeapon(item.definition.weaponType)) return;
+        damageMultiplier *= Mathf.Clamp01(item.definition.unmasteredDamageMultiplier);
+        accuracyMultiplier *= Mathf.Clamp01(item.definition.unmasteredAccuracyMultiplier);
+    }
+
+    // ─── Métiers ──────────────────────────────────────────────────────────────
+    public List<JobInstance> jobInstanceList = new();
     [NonSerialized] private Dictionary<JobType, JobInstance> _jobInstances = new();
 
     // ─── Assignment courant ───────────────────────────────────────────────────
-    public AdventurerStateType currentStateType    = AdventurerStateType.Idle;
+    public AdventurerStateType currentStateType = AdventurerStateType.Idle;
     public string              currentBuildingId;
     public string              currentMissionId;
     public JobType             currentJobType = JobType.None;
 
     // ─── Affinités ────────────────────────────────────────────────────────────
-    public List<AffinityData> affinityList = new(); // sérialisable
-
+    public List<AffinityData> affinityList = new();
     [NonSerialized] private Dictionary<string, AffinityData> _affinities = new();
 
-    // ─── State machine (non sérialisée) ───────────────────────────────────────
+    // ─── State machine ────────────────────────────────────────────────────────
     [NonSerialized] private AdventurerState _currentState;
 
-    // ─── Events ───────────────────────────────────────────────────────────────
-    [field: NonSerialized] public event Action<AdventurerStateType, AdventurerStateType> OnStateChanged;
-    [field: NonSerialized] public event Action<JobType, int> OnJobLevelUp; // jobType, newLevel
-    [field: NonSerialized] public event Action<int>          OnLevelUp;    // newLevel
+    // ─── Events — incluent toujours "this" en premier param (cf. Building) ────
+    [field: NonSerialized] public event Action<Adventurer, AdventurerStateType, AdventurerStateType> OnStateChanged;
+    [field: NonSerialized] public event Action<Adventurer, JobType, int> OnJobLevelUp;
+    [field: NonSerialized] public event Action<Adventurer, int>          OnLevelUp;
 
     // =========================================================================
     // Constructeur
@@ -68,21 +135,19 @@ public class Adventurer
         traitIds = new List<string>();
         foreach (var t in traits) traitIds.Add(t.name);
 
-        // Stats : base classe + modificateurs race
         stats = new AdventurerStats(classData?.baseStats ?? new AdventurerStats());
         raceData?.ApplyToStats(stats);
         stats.ClampSecondaryStats();
 
         InitializeJobs();
 
-        // State machine
-        _currentState = new IdleState(this);
-        currentStateType = AdventurerStateType.Idle;
+        _currentState     = new IdleState(this);
+        currentStateType  = AdventurerStateType.Idle;
         _currentState.Enter();
     }
 
     // =========================================================================
-    // Tick — appelé par TimeManager à chaque tick de jeu
+    // Tick
     // =========================================================================
 
     public void Tick(float deltaTime)
@@ -102,10 +167,8 @@ public class Adventurer
         _currentState    = newState;
         currentStateType = newState.StateType;
         _currentState.Enter();
-        OnStateChanged?.Invoke(previous, currentStateType);
+        OnStateChanged?.Invoke(this, previous, currentStateType);
     }
-
-    // ─── API publique pour les Managers ───────────────────────────────────────
 
     public void AssignToBuilding(string buildingId, JobType jobType)
     {
@@ -128,15 +191,28 @@ public class Adventurer
         TransitionToState(new RestingState(this));
     }
 
-    public void SetInjured(float healingTime = 60f)
+    public void SetInjured(float healingTime = 60f, float initialHealthFraction = 0.25f)
     {
         if (currentStateType == AdventurerStateType.Dead) return;
-        TransitionToState(new InjuredState(this, healingTime));
+        TransitionToState(new InjuredState(this, healingTime, initialHealthFraction));
     }
+
+    public float HealthFraction => currentStateType == AdventurerStateType.Dead ? 0f
+        : _currentState is InjuredState injury ? injury.HealthFraction : 1f;
+
+    internal void AddWorkFatigue(float secondsWorked)
+    {
+        if (secondsWorked <= 0f || currentStateType != AdventurerStateType.Working) return;
+        float rate = Mathf.Max(0.5f, 5f - GetEffectivePrimary(PrimaryStat.Vitalite) * 0.03f);
+        stats.fatigue += rate * secondsWorked;
+        stats.ClampSecondaryStats();
+        if (IsExhausted) SetResting();
+    }
+
+    public bool IsExhausted => stats.fatigue >= 100f;
 
     public void Die() => TransitionToState(new DeadState(this));
 
-    // Appelé par les states dans leur Enter() quand ils libèrent l'aventurier
     public void ClearAssignment()
     {
         currentBuildingId = null;
@@ -144,7 +220,8 @@ public class Adventurer
         currentJobType    = JobType.None;
     }
 
-    public bool IsAvailable => currentStateType == AdventurerStateType.Idle;
+    [NonSerialized] public BuildingType? currentService;
+    public bool IsAvailable => currentStateType == AdventurerStateType.Idle && !currentService.HasValue;
 
     // =========================================================================
     // Métiers
@@ -167,10 +244,6 @@ public class Adventurer
         return instance;
     }
 
-    /// <summary>
-    /// Ajoute de l'XP au métier ciblé.
-    /// Retourne true si l'aventurier monte de niveau de métier.
-    /// </summary>
     public bool AddJobExperience(JobType jobType, int amount, JobDefinitionSO definition)
     {
         var instance = GetJobInstance(jobType);
@@ -181,37 +254,43 @@ public class Adventurer
 
         bool leveledUp = instance.AddExperience(definition, finalAmount);
         if (leveledUp)
-            OnJobLevelUp?.Invoke(jobType, instance.currentLevel);
+            OnJobLevelUp?.Invoke(this, jobType, instance.currentLevel);
 
         SyncJobList();
         return leveledUp;
     }
 
-    private void SyncJobList()
-        => jobInstanceList = new List<JobInstance>(_jobInstances.Values);
+    private void SyncJobList() => jobInstanceList = new List<JobInstance>(_jobInstances.Values);
 
     // =========================================================================
-    // Traits — helpers
+    // Traits
     // =========================================================================
 
-    /// <summary>Produit cumulé des effets multiplicateurs de tous les traits actifs.</summary>
     public float GetTraitMultiplier(TraitEffectType effectType)
     {
         float result = 1f;
         foreach (var trait in traits)
         {
-            float v = trait.GetEffectValue(effectType);
-            if (v != 0f) result *= v;
+            if (trait == null) continue;
+            foreach (var effect in trait.effects)
+                if (effect.effectType == effectType) result *= effect.value;
         }
+        if (adventurerClass != null)
+            foreach (var effect in adventurerClass.classPassives)
+                if (effect.effectType == effectType) result *= effect.value;
         return result;
     }
 
-    /// <summary>Somme des effets plats de tous les traits actifs.</summary>
     public float GetTraitFlat(TraitEffectType effectType)
     {
         float result = 0f;
         foreach (var trait in traits)
-            result += trait.GetEffectValue(effectType);
+            if (trait != null)
+                foreach (var effect in trait.effects)
+                    if (effect.effectType == effectType) result += effect.value;
+        if (adventurerClass != null)
+            foreach (var effect in adventurerClass.classPassives)
+                if (effect.effectType == effectType) result += effect.value;
         return result;
     }
 
@@ -219,10 +298,6 @@ public class Adventurer
     // Affinités
     // =========================================================================
 
-    /// <summary>
-    /// Modifie l'affinité avec un autre aventurier.
-    /// Crée l'entrée si inexistante, avec valeur de départ basée sur les races.
-    /// </summary>
     public void ChangeAffinity(Adventurer other, float delta)
     {
         if (other == null || other.id == id) return;
@@ -250,17 +325,12 @@ public class Adventurer
     public AffinityType GetAffinityTypeWith(string adventurerId)
         => GetAffinityWith(adventurerId)?.affinityType ?? AffinityType.Stranger;
 
-    private void SyncAffinityList()
-        => affinityList = new List<AffinityData>(_affinities.Values);
+    private void SyncAffinityList() => affinityList = new List<AffinityData>(_affinities.Values);
 
     // =========================================================================
     // Économie
     // =========================================================================
 
-    /// <summary>
-    /// Salaire courant. Passe activeJobDef si l'aventurier est en train de travailler.
-    /// Base classe × niveau général × traits × prime de niveau métier.
-    /// </summary>
     public int CalculateSalary(JobDefinitionSO activeJobDef = null)
     {
         if (adventurerClass == null) return 0;
@@ -269,9 +339,9 @@ public class Adventurer
         salary *= 1f + (stats.level - 1) * 0.1f;
         salary *= GetTraitMultiplier(TraitEffectType.Salary_Multiplier);
 
-        if (activeJobDef != null && currentJobType != JobType.None)
+        if (activeJobDef != null && activeJobDef.jobType != JobType.None)
         {
-            var jobInst = GetJobInstance(currentJobType);
+            var jobInst = GetJobInstance(activeJobDef.jobType);
             if (jobInst != null)
                 salary *= jobInst.GetSalaryMultiplier(activeJobDef);
         }
@@ -280,15 +350,16 @@ public class Adventurer
     }
 
     /// <summary>
-    /// Commission prélevée sur la vente d'un objet produit.
-    /// Base 15% — réduite par passion naturelle (affinité de classe) et traits.
+    /// Commission prélevée sur la vente d'un objet fabriqué.
+    /// jobType/jobDef doivent correspondre au métier utilisé AU MOMENT DU CRAFT
+    /// (stocké sur EquipmentInstance.craftedByJobType), pas au métier actuel.
     /// </summary>
-    public float CalculateCommission(float salePrice, JobDefinitionSO activeJobDef)
+    public float CalculateCommission(float salePrice, JobType jobType, JobDefinitionSO jobDef)
     {
         float rate = 0.15f;
 
-        if (adventurerClass != null && currentJobType != JobType.None)
-            rate -= adventurerClass.GetJobAffinityBonus(currentJobType) * 0.5f;
+        if (adventurerClass != null && jobType != JobType.None)
+            rate -= adventurerClass.GetJobAffinityBonus(jobType) * 0.5f;
 
         rate *= GetTraitMultiplier(TraitEffectType.Commission_Multiplier);
         rate  = Mathf.Clamp(rate, 0.05f, 0.30f);
@@ -306,23 +377,26 @@ public class Adventurer
             amount * GetTraitMultiplier(TraitEffectType.ExperienceGain_Multiplier));
 
         if (stats.AddExperience(final))
-            OnLevelUp?.Invoke(stats.level);
+            OnLevelUp?.Invoke(this, stats.level);
     }
 
     // =========================================================================
-    // Post-load — à appeler par AdventurerManager après désérialisation
+    // Post-load — les refs sont résolues par AdventurerManager puis passées ici
     // =========================================================================
 
-    public void OnAfterLoad()
+    public void OnAfterLoad(AdventurerClassSO classData, AdventurerRaceSO raceData, List<TraitSO> traitsData)
     {
-        // Reconstruit les dictionnaires depuis les listes sérialisées
+        adventurerClass = classData;
+        adventurerRace  = raceData;
+        traits          = traitsData ?? new List<TraitSO>();
+        equippedItems ??= new List<EquippedItemSlot>();
+
         _jobInstances = new Dictionary<JobType, JobInstance>();
         foreach (var j in jobInstanceList) _jobInstances[j.jobType] = j;
 
         _affinities = new Dictionary<string, AffinityData>();
         foreach (var a in affinityList) _affinities[a.targetAdventurerId] = a;
 
-        // Reconstruit la state machine depuis l'état sérialisé
         _currentState = currentStateType switch
         {
             AdventurerStateType.Working   => new WorkingState(this),
@@ -333,4 +407,11 @@ public class Adventurer
             _                             => new IdleState(this)
         };
     }
+}
+
+[Serializable]
+public class EquippedItemSlot
+{
+    public EquipmentSlot slot;
+    public string equipmentId;
 }
