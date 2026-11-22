@@ -4,6 +4,8 @@ using UnityEngine;
 
 public class AdventurerManager : MonoBehaviour
 {
+    public const float BaseTrainedRecruitChance = 0.4f;
+    public const float MaxTrainedRecruitChance = 0.9f;
     public static AdventurerManager Instance { get; private set; }
 
     [Header("Définitions (pool de génération)")]
@@ -72,7 +74,27 @@ public class AdventurerManager : MonoBehaviour
         RefreshRecruitPool();
     }
 
-    public float RecruitRefreshRemaining => Mathf.Max(0f, recruitRefreshTime - _recruitTimer);
+    public float RecruitRefreshRemaining
+        => Mathf.Max(0f, recruitRefreshTime - _recruitTimer) / (1f + GetRecruitmentBonuses().Speed);
+    public float TrainedRecruitChance => Mathf.Min(MaxTrainedRecruitChance, BaseTrainedRecruitChance + GetRecruitmentBonuses().TrainedChance);
+
+    private (float Speed, float TrainedChance) GetRecruitmentBonuses()
+    {
+        var building = BuildingManager.Instance?.GetBuilding(BuildingType.Recruiter);
+        if (building?.IsActive != true) return (0f, 0f);
+
+        float speed = 0f;
+        float trainedChance = 0f;
+        foreach (string workerId in building.assignedAdventurerIds)
+        {
+            var worker = GetById(workerId);
+            if (worker == null) continue;
+            var bonus = JobPerformance.Recruitment(worker);
+            speed += bonus.SpeedBonus;
+            trainedChance += bonus.TrainedChanceBonus;
+        }
+        return (speed, trainedChance);
+    }
 
     // =========================================================================
     // Tick — appelé par TimeManager
@@ -88,7 +110,7 @@ public class AdventurerManager : MonoBehaviour
             if (wasResting && a.IsAvailable) OnAdventurerRested?.Invoke(a);
         }
 
-        _recruitTimer += deltaTime;
+        _recruitTimer += deltaTime * (1f + GetRecruitmentBonuses().Speed);
         if (_recruitTimer >= recruitRefreshTime)
         {
             _recruitTimer = 0f;
@@ -157,13 +179,14 @@ public class AdventurerManager : MonoBehaviour
             OnRecruitPoolRefreshed?.Invoke();
             return;
         }
+        float trainedChance = TrainedRecruitChance;
         for (int i = 0; i < recruitPoolSize; i++)
-            _recruitPool.Add(GenerateRecruit());
+            _recruitPool.Add(GenerateRecruit(trainedChance));
 
         OnRecruitPoolRefreshed?.Invoke();
     }
 
-    private RecruitOffer GenerateRecruit()
+    private RecruitOffer GenerateRecruit(float trainedChance)
     {
         var cls  = allClasses[UnityEngine.Random.Range(0, allClasses.Count)];
         var race = allRaces[UnityEngine.Random.Range(0, allRaces.Count)];
@@ -182,7 +205,7 @@ public class AdventurerManager : MonoBehaviour
         var candidate = new Adventurer(name, cls, race, traits, age: UnityEngine.Random.Range(18, 45));
 
         // Les recrues proposées peuvent déjà avoir du niveau dans un métier
-        if (UnityEngine.Random.value < 0.4f)
+        if (UnityEngine.Random.value < trainedChance)
         {
             var jobType = (JobType)UnityEngine.Random.Range(1, Enum.GetValues(typeof(JobType)).Length);
             var jobInst = candidate.GetJobInstance(jobType);

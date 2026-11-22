@@ -58,12 +58,14 @@ public static class GuildWorkshopSetup
             c.masteredWeapons = new() { WeaponType.Staff, WeaponType.Grimoire };
             c.jobAffinities.Add(new ClassJobAffinity { jobType = JobType.Blacksmith, performanceBonus = .1f });
         });
-        var human = Asset<AdventurerRaceSO>("Race_Human", r => { r.raceName = "Humain"; r.raceType = Race.Human; });
-        var dwarf = Asset<AdventurerRaceSO>("Race_Dwarf", r =>
+        Asset<AdventurerRaceSO>("Race_Human", r => { r.raceName = "Humain"; r.raceType = Race.Human; });
+        Asset<AdventurerRaceSO>("Race_Dwarf", r =>
         {
-            r.raceName = "Nain"; r.raceType = Race.Dwarf;
+            r.raceName = "Nain des montagnes"; r.raceType = Race.Dwarf;
             r.statModifiers.Add(new PrimaryStatModifier { stat = PrimaryStat.Vitalite, value = 3 });
             r.statModifiers.Add(new PrimaryStatModifier { stat = PrimaryStat.Resistance, value = 2 });
+            r.jobEffects.Add(new RacialJobEffect { effect = JobEffectType.ForgeDurationReduction, bonus = .10f });
+            r.jobEffects.Add(new RacialJobEffect { effect = JobEffectType.TrainingSpeed, bonus = .08f });
         });
         var jobs = new List<JobDefinitionSO>();
         string[] jobNames = { "", "Forgeron", "Artisan", "Marchand", "Soigneur", "Cuisinier", "Recruteur", "Entraîneur", "Éclaireur" };
@@ -132,7 +134,7 @@ public static class GuildWorkshopSetup
         SetArray(buildings, "jobDefinitions", jobs.ToArray());
         SetArray(buildings, "allRecipes", recipes.ToArray());
         SetArray(adventurers, "allClasses", warrior, mage);
-        SetArray(adventurers, "allRaces", human, dwarf);
+        RestoreArray<AdventurerRaceSO>(adventurers, "allRaces");
         SetArray(adventurers, "allTraits", hardworking, gifted, greedy);
         SetRef(clock, "economy", economy); SetRef(clock, "buildings", buildings); SetRef(clock, "adventurers", adventurers);
         SetRef(game, "adventurers", adventurers); SetRef(game, "buildings", buildings);

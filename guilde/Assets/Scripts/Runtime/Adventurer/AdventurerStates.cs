@@ -67,8 +67,7 @@ public class RestingState : AdventurerState
 
     public override void Tick(float deltaTime)
     {
-        float recovery = Owner.GetTraitMultiplier(TraitEffectType.FatigueRecovery_Multiplier);
-        Owner.stats.fatigue -= 10f * recovery * deltaTime;
+        Owner.stats.fatigue -= Owner.RestRecoveryPerSecond * deltaTime;
         Owner.stats.ClampSecondaryStats();
 
         if (Owner.stats.fatigue <= 10f)

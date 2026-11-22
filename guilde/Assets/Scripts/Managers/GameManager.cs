@@ -42,9 +42,9 @@ public class GameManager : MonoBehaviour
         clock.SetSpeed(GameSpeed.Paused);
         buildings.ResetForNewGame();
         inventory.ResetForNewGame();
+        buildings.InitializeDefaultBuildings(startingBuildings);
         adventurers.ResetForNewGame();
         economy.ResetForNewGame();
-        buildings.InitializeDefaultBuildings(startingBuildings);
         foreach (var cost in startingResources)
             if (cost.resource != null) inventory.AddResource(cost.resource, cost.amount);
         clock.ResetForNewGame();

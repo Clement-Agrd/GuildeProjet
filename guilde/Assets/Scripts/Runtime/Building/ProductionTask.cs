@@ -19,6 +19,7 @@ public class ProductionTask
     public int seriesUnit = 1;
     public bool awaitingInputs;
     public bool stopAfterCurrentUnit;
+    internal string ComponentBlockReason { get; set; }
 
     public bool IsSeries => seriesQuantity > 1;
     public bool HasNextUnit => !stopAfterCurrentUnit && seriesUnit < seriesQuantity;

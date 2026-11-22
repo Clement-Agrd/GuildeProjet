@@ -100,6 +100,7 @@ public class Adventurer
     // ─── Assignment courant ───────────────────────────────────────────────────
     public AdventurerStateType currentStateType = AdventurerStateType.Idle;
     public string              currentBuildingId;
+    public string              previousBuildingId;
     public string              currentMissionId;
     public JobType             currentJobType = JobType.None;
 
@@ -200,11 +201,13 @@ public class Adventurer
     public float HealthFraction => currentStateType == AdventurerStateType.Dead ? 0f
         : _currentState is InjuredState injury ? injury.HealthFraction : 1f;
 
+    public float WorkFatiguePerSecond => JobPerformance.GetEffect(this, JobEffectType.WorkFatigue).Total;
+    public float RestRecoveryPerSecond => 10f * GetTraitMultiplier(TraitEffectType.FatigueRecovery_Multiplier);
+
     internal void AddWorkFatigue(float secondsWorked)
     {
         if (secondsWorked <= 0f || currentStateType != AdventurerStateType.Working) return;
-        float rate = Mathf.Max(0.5f, 5f - GetEffectivePrimary(PrimaryStat.Vitalite) * 0.03f);
-        stats.fatigue += rate * secondsWorked;
+        stats.fatigue += WorkFatiguePerSecond * secondsWorked;
         stats.ClampSecondaryStats();
         if (IsExhausted) SetResting();
     }
@@ -215,6 +218,7 @@ public class Adventurer
 
     public void ClearAssignment()
     {
+        if (!string.IsNullOrEmpty(currentBuildingId)) previousBuildingId = currentBuildingId;
         currentBuildingId = null;
         currentMissionId  = null;
         currentJobType    = JobType.None;

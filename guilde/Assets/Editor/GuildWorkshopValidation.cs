@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Reflection;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.InputSystem;
@@ -264,6 +265,11 @@ public static class GuildWorkshopValidation
             Check(!roster.HireAdventurer(roster.GetRecruitPool()[0].candidate.id) && economy.CurrentGold == goldAtCapacity,
                 "Recrutement plein : candidature conservée et aucun or débité");
             VerifySeriesAndAutoSales(Check);
+            VerifyAutoPurchasesAndJournal(Check, ui, clock, autoPause);
+            VerifyJournalDecisions(Check, ui, clock, autoPause);
+            VerifyJobPerformance(Check, autoPause);
+            VerifyGuildJobPerformance(Check, autoPause);
+            VerifyRacialJobEffects(Check);
             report.passed = true;
             Debug.Log($"Atelier : {report.checks.Count} vérifications réussies en mode Play.");
         }
@@ -327,10 +333,12 @@ public static class GuildWorkshopValidation
             "La série attend une place sans payer la pièce suivante");
         int beforeSale = economy.CurrentGold;
         int net = economy.GetEquipmentSellPrice(forSale);
+        float merchantFatigue = merchant.stats.fatigue;
         economy.Tick(3f);
         check(economy.AutoSoldCount == 1 && economy.CurrentGold == beforeSale + net
             && inventory.GetEquipment(forSale.equipmentId) == null && inventory.GetEquipment(worn.equipmentId) == worn,
             "La vente automatique libère une place et respecte l'équipement porté");
+        check(merchant.stats.fatigue > merchantFatigue, "La vente automatique fatigue le marchand");
         buildings.Tick(.1f);
         check(!task.awaitingInputs && buildings.ReservedEquipmentSlots == 1
             && inventory.GetAmount(component.resource) == initialComponents - 2 * component.amount,
@@ -379,6 +387,319 @@ public static class GuildWorkshopValidation
         buildings.Tick(waiting.totalDuration + .1f);
         check(waiting.awaitingInputs && buildings.StopSeriesAfterCurrentUnit(forge.buildingId, waiting.taskId)
             && forge.activeTasks.Count == 0, "L’arrêt différé clôt immédiatement une série sans pièce en cours");
+    }
+
+    private static void VerifyAutoPurchasesAndJournal(Action<bool, string> check, GuildWorkshopUI ui,
+        TimeManager clock, Toggle autoPause)
+    {
+        GameManager.Instance.StartNewGame();
+        var roster = AdventurerManager.Instance;
+        var economy = EconomyManager.Instance;
+        var buildings = BuildingManager.Instance;
+        var stock = GuildInventory.Instance;
+        var smith = roster.GetRecruitPool()[0].candidate;
+        var merchant = roster.GetRecruitPool()[1].candidate;
+        check(!economy.AutoBuyComponents && !economy.ConfigureAutoPurchases(true), "L’achat automatique demande un marchand");
+        autoPause.value = true;
+        clock.SetSpeed(GameSpeed.Normal);
+        check(roster.HireAdventurer(smith.id) && roster.HireAdventurer(merchant.id)
+            && buildings.AssignAdventurer(smith, BuildingType.Forge) && buildings.AssignAdventurer(merchant, BuildingType.Market),
+            "Un forgeron et un marchand sont affectés pour tester le réapprovisionnement");
+        smith.AddExperience(smith.stats.experienceToNextLevel * 2);
+        check(clock.CurrentSpeed == GameSpeed.Normal && ui.Root.Q<Label>("status").text.Contains("atteint le niveau"),
+            "Une montée de niveau apparaît dans le journal sans mettre le jeu en pause");
+
+        var recipe = buildings.GetRecipesForJob(JobType.Blacksmith)[0];
+        var first = recipe.inputResources[0];
+        var second = recipe.inputResources[1];
+        var manualSale = new EquipmentInstance(recipe.outputEquipment, EquipmentQuality.Normal);
+        float fatigueBefore = merchant.stats.fatigue;
+        check(economy.BuyResource(first.resource, 1) && economy.SellResource(first.resource, 1)
+            && stock.AddEquipment(manualSale) && economy.SellEquipment(manualSale.equipmentId)
+            && merchant.stats.fatigue == fatigueBefore, "Les achats et ventes manuels ne fatiguent pas le marchand");
+
+        stock.AddResource(first.resource, -stock.GetAmount(first.resource));
+        stock.AddResource(second.resource, -stock.GetAmount(second.resource));
+        check(!buildings.StartProduction(smith, recipe, 2), "La commande sans stock est refusée tant que les achats automatiques sont désactivés");
+        check(economy.ConfigureAutoPurchases(true) && buildings.StartProduction(smith, recipe, 2), "La commande est acceptée avec le réapprovisionnement activé");
+        var task = buildings.GetTaskForWorker(smith.id);
+
+        buildings.UnassignAdventurer(merchant);
+        int goldBefore = economy.CurrentGold;
+        buildings.Tick(.1f);
+        check(task.awaitingInputs && economy.CurrentGold == goldBefore && clock.CurrentSpeed == GameSpeed.Paused,
+            "Sans marchand, la commande attend et le journal signale un blocage");
+        check(buildings.AssignAdventurer(merchant, BuildingType.Market), "Le marchand peut reprendre son poste");
+        clock.SetSpeed(GameSpeed.Normal);
+        int firstCost = economy.GetBuyPrice(first.resource, first.amount);
+        economy.SpendGold(economy.CurrentGold - firstCost);
+        buildings.Tick(.1f);
+        check(task.awaitingInputs && economy.CurrentGold == firstCost && stock.GetAmount(first.resource) == 0
+            && stock.GetAmount(second.resource) == 0 && merchant.stats.fatigue == fatigueBefore,
+            "Si l’or manque, aucun achat partiel ni fatigue");
+
+        stock.AddResource(second.resource, second.amount);
+        economy.AddGold(100);
+        goldBefore = economy.CurrentGold;
+        clock.SetSpeed(GameSpeed.Normal);
+        buildings.Tick(.1f);
+        check(!task.awaitingInputs && economy.CurrentGold == goldBefore - firstCost && merchant.stats.fatigue > fatigueBefore
+            && clock.CurrentSpeed == GameSpeed.Normal,
+            "L’achat automatique paie seulement les composants manquants et fatigue le marchand sans interrompre le jeu");
+        buildings.Tick(task.totalDuration + .1f);
+        check(!task.awaitingInputs && task.seriesUnit == 2 && stock.EquipmentCount == 1,
+            "Les pièces suivantes d’une série peuvent à leur tour être réapprovisionnées");
+        buildings.Tick(task.totalDuration + .1f);
+        check(stock.EquipmentCount == 2 && buildings.GetTaskForWorker(smith.id) == null && clock.CurrentSpeed == GameSpeed.Paused,
+            "La fin de série déclenche la pause quand l’artisan attend une commande");
+    }
+
+    private static void VerifyJournalDecisions(Action<bool, string> check, GuildWorkshopUI ui, TimeManager clock, Toggle autoPause)
+    {
+        GameManager.Instance.StartNewGame();
+        var roster = AdventurerManager.Instance;
+        var buildings = BuildingManager.Instance;
+        var forge = buildings.GetBuilding(BuildingType.Forge);
+        var tavern = buildings.GetBuilding(BuildingType.Tavern);
+        var smith = roster.GetRecruitPool()[0].candidate;
+        var recipe = buildings.GetRecipesForJob(JobType.Blacksmith)[0];
+        autoPause.value = true;
+        clock.SetSpeed(GameSpeed.Fast);
+        check(roster.HireAdventurer(smith.id) && buildings.AssignAdventurer(smith, BuildingType.Forge)
+            && buildings.StartProduction(smith, recipe, 2), "Une série est prête pour vérifier les actions de pause");
+        buildings.Tick(forge.activeTasks[0].totalDuration + .1f);
+        check(clock.CurrentSpeed == GameSpeed.Fast, "La fabrication continue entre deux pièces d’une série");
+        buildings.Tick(forge.activeTasks[0].totalDuration + .1f);
+        check(clock.CurrentSpeed == GameSpeed.Paused && GetDecisionButton(ui, "Relancer une série")?.enabledInHierarchy == true
+            && GetDecisionButton(ui, "Aller à la forge") != null && GetDecisionButton(ui, "Ignorer") != null,
+            "Fin de série : les trois choix sont disponibles dans la barre du bas");
+        smith.AddExperience(smith.stats.experienceToNextLevel * 2);
+        check(GetDecisionButton(ui, "Relancer une série")?.enabledInHierarchy == true,
+            "Une montée de niveau ne masque pas la décision en attente dans la barre du bas");
+        SubmitDecision(ui, "Aller à la forge");
+        check(clock.CurrentSpeed == GameSpeed.Paused && forge.activeTasks.Count == 0, "Ouvrir la Forge préserve la pause sans lancer de commande");
+        SubmitDecision(ui, "Relancer une série");
+        check(clock.CurrentSpeed == GameSpeed.Fast && forge.activeTasks.Count == 1 && forge.activeTasks[0].seriesQuantity == 2,
+            "Relancer une série reprend la même recette, la même quantité et la vitesse précédente");
+
+        smith.stats.fatigue = 100f;
+        smith.stats.moral = 99f;
+        smith.SetResting();
+        check(clock.CurrentSpeed == GameSpeed.Paused && GetDecisionButton(ui, "Envoyer à la taverne") != null
+            && GetDecisionButton(ui, "Ignorer") != null, "La fatigue propose la taverne ou d’ignorer l’alerte");
+        SubmitDecision(ui, "Envoyer à la taverne");
+        check(clock.CurrentSpeed == GameSpeed.Fast && smith.currentService == BuildingType.Tavern,
+            "Envoyer l’aventurier à la taverne remet le jeu en marche");
+        buildings.Tick(.5f);
+        check(clock.CurrentSpeed == GameSpeed.Fast && smith.currentService == BuildingType.Tavern,
+            "Le moral à 100 % reste informatif si l’aventurier est encore au repos");
+        smith.stats.fatigue = 1f;
+        buildings.Tick(1f);
+        check(clock.CurrentSpeed == GameSpeed.Paused && smith.IsAvailable && buildings.ServiceOccupancy(tavern.buildingType) == 0
+            && GetDecisionButton(ui, "Envoyer à son ancien poste")?.enabledInHierarchy == true,
+            "La fin du repos suspend le temps et propose de reprendre l’ancien poste");
+        SubmitDecision(ui, "Voir la fiche");
+        check(clock.CurrentSpeed == GameSpeed.Paused && smith.IsAvailable, "Consulter la fiche préserve la pause");
+        SubmitDecision(ui, "Envoyer à son ancien poste");
+        check(clock.CurrentSpeed == GameSpeed.Fast && forge.HasWorker(smith.id) && forge.activeTasks.Count == 1,
+            "Retourner à la Forge remet le jeu en marche et conserve la commande de l’artisan");
+        buildings.Tick(forge.activeTasks[0].totalDuration + .1f);
+        buildings.Tick(forge.activeTasks[0].totalDuration + .1f);
+        SubmitDecision(ui, "Ignorer");
+        check(clock.CurrentSpeed == GameSpeed.Fast && forge.activeTasks.Count == 0,
+            "Ignorer la notification reprend le temps sans nouvelle commande");
+    }
+
+    private static void VerifyJobPerformance(Action<bool, string> check, Toggle autoPause)
+    {
+        GameManager.Instance.StartNewGame();
+        autoPause.value = false;
+        var roster = AdventurerManager.Instance;
+        var buildings = BuildingManager.Instance;
+        var economy = EconomyManager.Instance;
+        var smith = roster.GetRecruitPool()[0].candidate;
+        var worker = roster.GetRecruitPool()[1].candidate;
+        check(roster.HireAdventurer(smith.id) && roster.HireAdventurer(worker.id), "Deux candidats sont disponibles pour comparer les métiers");
+
+        var forge = buildings.GetBuilding(BuildingType.Forge);
+        var recipe = buildings.GetRecipesForJob(JobType.Blacksmith)[0];
+        var definition = buildings.GetJobDefinition(JobType.Blacksmith);
+        smith.stats.force = 5;
+        smith.stats.chance = 5;
+        smith.stats.vitalite = 5;
+        var initial = JobPerformance.GetCrafting(smith, recipe, definition);
+        float fatiguePerSecond = smith.WorkFatiguePerSecond;
+        smith.stats.force = 45;
+        smith.stats.chance = 45;
+        smith.stats.vitalite = 45;
+        var improved = JobPerformance.GetCrafting(smith, recipe, definition);
+        check(improved.Duration < initial.Duration && recipe.GetQualityChances(improved.QualityBonus).Normal < recipe.GetQualityChances(initial.QualityBonus).Normal
+            && smith.WorkFatiguePerSecond < fatiguePerSecond, "Force, Chance et Vitalité améliorent les performances de la Forge");
+        check(buildings.AssignAdventurer(smith, BuildingType.Forge) && buildings.StartProduction(smith, recipe)
+            && Mathf.Approximately(forge.activeTasks[0].totalDuration, improved.Duration),
+            "La fabrication utilise la durée figurant dans l’aperçu");
+
+        var jewelry = buildings.GetRecipesForJob(JobType.Craftsman)[0];
+        var craftsman = buildings.GetJobDefinition(JobType.Craftsman);
+        worker.stats.intelligence = 5;
+        worker.stats.chance = 5;
+        initial = JobPerformance.GetCrafting(worker, jewelry, craftsman);
+        worker.stats.intelligence = 45;
+        worker.stats.chance = 45;
+        improved = JobPerformance.GetCrafting(worker, jewelry, craftsman);
+        check(improved.Duration < initial.Duration && improved.QualityBonus > initial.QualityBonus,
+            "Intelligence et Chance améliorent la fabrication des bijoux");
+        var odds = jewelry.GetQualityChances(10f);
+        check(odds.Normal >= 0f && odds.Rare >= 0f && odds.Epic >= 0f && odds.Legendary >= 0f
+            && Mathf.Approximately(odds.Normal + odds.Rare + odds.Epic + odds.Legendary, 1f), "Les probabilités de rareté restent valides aux valeurs extrêmes");
+
+        worker.stats.charisme = 45;
+        var iron = recipe.inputResources[0].resource;
+        int unassistedPrice = economy.GetSellPrice(iron, 20);
+        check(buildings.AssignAdventurer(worker, BuildingType.Market) && economy.GetSellPrice(iron, 20) > unassistedPrice,
+            "Le Charisme affiché augmente le prix de vente réel au Marché");
+
+        buildings.UnassignAdventurer(worker);
+        worker.stats.sagesse = 5;
+        float healingBonus = JobPerformance.HealingBonus(worker);
+        worker.stats.sagesse = 45;
+        check(JobPerformance.HealingBonus(worker) > healingBonus, "La Sagesse accélère les soins");
+
+        buildings.UnassignAdventurer(smith);
+        smith.stats.fatigue = 100f;
+        smith.stats.moral = 99f;
+        smith.SetResting();
+        roster.Tick(1f);
+        float recoveredOutside = 100f - smith.stats.fatigue;
+        smith.stats.fatigue = 100f;
+        check(buildings.StartService(smith, buildings.GetBuilding(BuildingType.Tavern)), "L’aventurier peut se reposer à la taverne sans tavernier");
+        buildings.Tick(1f);
+        check(100f - smith.stats.fatigue > recoveredOutside, "La taverne réduit la fatigue plus vite que le repos naturel");
+    }
+
+    private static void VerifyGuildJobPerformance(Action<bool, string> check, Toggle autoPause)
+    {
+        GameManager.Instance.StartNewGame();
+        autoPause.value = false;
+        var roster = AdventurerManager.Instance;
+        var buildings = BuildingManager.Instance;
+        var worker = roster.GetRecruitPool()[0].candidate;
+        var guest = roster.GetRecruitPool()[1].candidate;
+        check(roster.HireAdventurer(worker.id) && roster.HireAdventurer(guest.id)
+            && buildings.AssignAdventurer(worker, BuildingType.Recruiter), "Un recruteur est affecté pour vérifier les nouvelles candidatures");
+        worker.stats.charisme = 5;
+        worker.stats.chance = 5;
+        float refresh = roster.RecruitRefreshRemaining;
+        float trained = roster.TrainedRecruitChance;
+        worker.stats.charisme = 45;
+        check(roster.RecruitRefreshRemaining < refresh && roster.TrainedRecruitChance == trained,
+            "Le Charisme accélère le renouvellement des candidatures");
+        worker.stats.chance = 45;
+        check(roster.TrainedRecruitChance > trained, "La Chance augmente la probabilité d’une recrue expérimentée");
+        var oldOffer = roster.GetRecruitPool()[0];
+        roster.Tick(roster.RecruitRefreshRemaining + .1f);
+        check(!roster.GetRecruitPool().Contains(oldOffer), "La liste se renouvelle selon le délai affiché");
+
+        buildings.UnassignAdventurer(worker);
+        check(buildings.AssignAdventurer(worker, BuildingType.Headquarters), "Le même aventurier peut passer au quartier général");
+        worker.stats.agilite = 5;
+        worker.stats.chance = 5;
+        float interval = buildings.MissionInterval;
+        float prestigeChance = buildings.MissionPrestigiousChance;
+        worker.stats.agilite = 45;
+        check(buildings.MissionInterval < interval && buildings.MissionPrestigiousChance == prestigeChance,
+            "L’Agilité accélère la recherche de contrats");
+        worker.stats.chance = 45;
+        check(buildings.MissionPrestigiousChance > prestigeChance, "La Chance augmente la probabilité d’un contrat prestigieux");
+
+        buildings.UnassignAdventurer(worker);
+        check(buildings.AssignAdventurer(worker, BuildingType.TrainingRoom)
+            && buildings.StartService(guest, buildings.GetBuilding(BuildingType.TrainingRoom)), "Une séance est prête à comparer la vitesse de l’entraîneur");
+        worker.stats.resistance = 5;
+        buildings.Tick(.5f);
+        float progress = buildings.ServiceProgress(guest);
+        worker.stats.resistance = 45;
+        buildings.Tick(.5f);
+        check(buildings.ServiceProgress(guest) - progress > progress, "La Résistance accélère réellement la séance");
+
+        buildings.StopService(guest);
+        buildings.UnassignAdventurer(worker);
+        guest.stats.fatigue = 100f;
+        guest.stats.moral = 0f;
+        check(buildings.AssignAdventurer(worker, BuildingType.Tavern)
+            && buildings.StartService(guest, buildings.GetBuilding(BuildingType.Tavern)), "Le tavernier accueille un aventurier fatigué");
+        worker.stats.sagesse = 5;
+        buildings.Tick(.5f);
+        float fatigueRecovered = 100f - guest.stats.fatigue;
+        float moraleRecovered = guest.stats.moral;
+        guest.stats.fatigue = 100f;
+        guest.stats.moral = 0f;
+        worker.stats.sagesse = 45;
+        buildings.Tick(.5f);
+        check(100f - guest.stats.fatigue > fatigueRecovered && guest.stats.moral > moraleRecovered,
+            "La Sagesse du tavernier accélère la récupération de la fatigue et du moral");
+    }
+
+    private static void VerifyRacialJobEffects(Action<bool, string> check)
+    {
+        var roster = AdventurerManager.Instance;
+        var buildings = BuildingManager.Instance;
+        var dwarf = roster.GetRaceById("Race_Dwarf");
+        var human = roster.GetRaceById("Race_Human");
+        check(dwarf != null && human != null, "Les races du prototype sont configurées pour l’aperçu de métier");
+        var variants = new (string Id, Race Family)[]
+        {
+            ("Race_Dwarf_Hill", Race.Dwarf), ("Race_Elf_Wood", Race.Elf), ("Race_Elf_High", Race.Elf),
+            ("Race_Elf_Drow", Race.Elf), ("Race_Gnome_Rock", Race.Gnome), ("Race_Gnome_Forest", Race.Gnome),
+            ("Race_Halfling_Lightfoot", Race.Halfling), ("Race_Halfling_Stout", Race.Halfling),
+            ("Race_HalfElf", Race.HalfElf), ("Race_Orc", Race.Orc), ("Race_Tiefling", Race.Tiefling)
+        };
+        foreach (var (id, family) in variants)
+        {
+            var race = roster.GetRaceById(id);
+            check(race != null && race.raceType == family && race.jobEffects.Count > 0 && race.statModifiers.Count == 0,
+                $"Recrutement · {id} est disponible avec des effets de métier");
+        }
+        var worker = new Adventurer("Aperçu", null, dwarf, null);
+        worker.stats.force = 17;
+        worker.GetJobInstance(JobType.Blacksmith).currentLevel = 2;
+        var definition = buildings.GetJobDefinition(JobType.Blacksmith);
+        var effect = JobPerformance.GetEffect(worker, JobEffectType.ForgeDurationReduction, definition);
+        check(effect.StatValue == 17 && Mathf.Approximately(effect.StatBonus, .17f) && Mathf.Approximately(effect.RaceBonus, .10f)
+            && Mathf.Approximately(effect.LevelBonus, worker.GetJobInstance(JobType.Blacksmith).GetEfficiencyBonus(definition)),
+            "L’aperçu distingue la Force, le bonus racial direct et le niveau de métier");
+        var recipe = buildings.GetRecipesForJob(JobType.Blacksmith)[0];
+        var crafting = JobPerformance.GetCrafting(worker, recipe, definition);
+        check(Mathf.Approximately(crafting.Duration, recipe.GetActualDuration(effect.Total)) && worker.stats.force == 17,
+            "La production utilise l’effet affiché et la Force reste inchangée");
+        worker.adventurerRace = human;
+        var humanEffect = JobPerformance.GetEffect(worker, JobEffectType.ForgeDurationReduction, definition);
+        check(Mathf.Approximately(humanEffect.StatBonus, effect.StatBonus) && humanEffect.Total < effect.Total
+            && Mathf.Approximately(JobPerformance.GetEffect(worker, JobEffectType.RecruitmentSpeed).RaceBonus, .04f),
+            "L’Humain a un bonus polyvalent indépendant des statistiques");
+        worker.adventurerRace = roster.GetRaceById("Race_Elf_Wood");
+        check(Mathf.Approximately(JobPerformance.GetEffect(worker, JobEffectType.ScoutingSpeed).RaceBonus, .10f)
+            && Mathf.Approximately(JobPerformance.GetEffect(worker, JobEffectType.ScoutingQuality).RaceBonus, .02f)
+            && JobPerformance.GetEffect(worker, JobEffectType.ForgeDurationReduction).RaceBonus == 0f,
+            "Les bonus de l’Elfe des bois s’appliquent au quartier général");
+        worker.adventurerRace = roster.GetRaceById("Race_Halfling_Stout");
+        check(Mathf.Approximately(JobPerformance.GetEffect(worker, JobEffectType.WorkFatigue).RaceBonus, -.18f),
+            "Le Halfelin robuste se fatigue moins au travail");
+    }
+
+    private static Button GetDecisionButton(GuildWorkshopUI ui, string label)
+    {
+        typeof(GuildWorkshopUI).GetMethod("Render", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(ui, null);
+        return ui.Root.Q("status-actions").Query<Button>().ToList().Find(button => button.text == label);
+    }
+
+    private static void SubmitDecision(GuildWorkshopUI ui, string label)
+    {
+        var button = GetDecisionButton(ui, label);
+        if (button?.enabledInHierarchy != true) throw new InvalidOperationException($"Action du journal indisponible · {label}");
+        using var submit = NavigationSubmitEvent.GetPooled();
+        submit.target = button;
+        button.SendEvent(submit);
     }
 
     private static bool VerifyPauseShortcut(TimeManager clock)

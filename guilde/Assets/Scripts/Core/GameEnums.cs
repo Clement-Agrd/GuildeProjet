@@ -1,6 +1,6 @@
 public enum AdventurerStateType { Idle, Working, OnMission, Resting, Injured, Dead }
 public enum AffinityType        { Stranger, Friend, BestFriend, Rival, Enemy, Lover, Mentor }
-public enum Race                { Human, Elf, Dwarf, Orc, Goblin, Goliath, Gnome }
+public enum Race                { Human, Elf, Dwarf, Orc, Goblin, Goliath, Gnome, Halfling, HalfElf, Tiefling }
 public enum WeaponType          { Sword, Axe, Mace, Bow, Staff, Grimoire, Dagger }
 public enum EquipmentSlot       { MainWeapon, OffHand, Armor, Helmet, Gloves, Boots, Accessory, Bracelet, Necklace, Ring }
 public enum EquipmentQuality    { Normal, Rare, Epic, Legendary }
@@ -19,6 +19,13 @@ public enum BuildingType
 public enum JobType
 {
     None, Blacksmith, Craftsman, Merchant, Healer, Cook, Recruiter, Trainer, Scout
+}
+
+public enum JobEffectType
+{
+    ForgeDurationReduction = 0, ForgeQuality = 1, WorkshopDurationReduction = 2, WorkshopQuality = 3,
+    SalePrice = 4, HealingSpeed = 5, RecruitmentSpeed = 6, TrainedRecruitChance = 7,
+    TrainingSpeed = 8, ScoutingSpeed = 9, ScoutingQuality = 10, TavernRecovery = 11, WorkFatigue = 12
 }
 
 // ─── Stats ────────────────────────────────────────────────────────────────────

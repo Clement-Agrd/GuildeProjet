@@ -18,9 +18,11 @@ public class EconomyManager : MonoBehaviour
 
     private readonly List<MarketPriceEntry>               _priceEntries = new();
     private readonly Dictionary<string, MarketPriceEntry> _priceById    = new();
+    private readonly Dictionary<ResourceSO, int> _componentPurchase = new();
     private const float AutoSaleInterval = 2f;
     private float _autoSaleRemaining;
     public bool AutoSellEquipment { get; private set; }
+    public bool AutoBuyComponents { get; private set; }
     public bool AutoSellOnlyWhenFull { get; private set; }
     public EquipmentQuality AutoSellMaxQuality { get; private set; }
     public int AutoSoldCount { get; private set; }
@@ -61,6 +63,7 @@ public class EconomyManager : MonoBehaviour
     public void ResetForNewGame()
     {
         AutoSellEquipment = false;
+        AutoBuyComponents = false;
         AutoSellOnlyWhenFull = false;
         AutoSellMaxQuality = EquipmentQuality.Normal;
         AutoSoldCount = 0;
@@ -148,7 +151,27 @@ public class EconomyManager : MonoBehaviour
         => Mathf.CeilToInt(resource.baseMarketValue * GetPriceMultiplier(resource) * buyMarkup * amount);
 
     public int GetSellPrice(ResourceSO resource, int amount)
-        => Mathf.FloorToInt(resource.baseMarketValue * GetPriceMultiplier(resource) * sellMarkdown * amount);
+        => Mathf.FloorToInt(resource.baseMarketValue * GetPriceMultiplier(resource) * sellMarkdown * amount * (1f + MarketSaleBonus));
+
+    public float MarketSaleBonus => JobPerformance.SaleBonus(GetSellingMerchant());
+
+    private Adventurer GetSellingMerchant()
+    {
+        var market = BuildingManager.Instance?.GetBuilding(BuildingType.Market);
+        if (market?.IsActive != true) return null;
+
+        Adventurer best = null;
+        float bestBonus = 0f;
+        foreach (string id in market.assignedAdventurerIds)
+        {
+            var candidate = AdventurerManager.Instance.GetById(id);
+            float bonus = JobPerformance.SaleBonus(candidate);
+            if (bonus <= bestBonus) continue;
+            best = candidate;
+            bestBonus = bonus;
+        }
+        return best;
+    }
 
     public bool BuyResource(ResourceSO resource, int amount)
     {
@@ -158,7 +181,6 @@ public class EconomyManager : MonoBehaviour
 
         GuildInventory.Instance.AddResource(resource, amount);
         DriftPrice(resource, amount * priceDriftPerUnit * resource.priceVolatility);
-        BuildingManager.Instance?.RecordTransactionWork(BuildingType.Market);
         return true;
     }
 
@@ -171,8 +193,54 @@ public class EconomyManager : MonoBehaviour
         GuildInventory.Instance.AddResource(resource, -amount);
         AddGold(revenue);
         DriftPrice(resource, -amount * priceDriftPerUnit * resource.priceVolatility);
-        BuildingManager.Instance?.RecordTransactionWork(BuildingType.Market);
         return true;
+    }
+
+    public bool ConfigureAutoPurchases(bool enabled)
+    {
+        if (enabled && !HasActiveMerchant) return false;
+        AutoBuyComponents = enabled;
+        return true;
+    }
+
+    internal string BuyMissingComponents(List<ResourceCost> costs)
+    {
+        if (!AutoBuyComponents) return "composants manquants";
+        if (!HasActiveMerchant) return "aucun marchand disponible pour l’achat automatique";
+
+        var stock = GuildInventory.Instance;
+        _componentPurchase.Clear();
+        foreach (var cost in costs)
+        {
+            if (cost?.resource == null || cost.amount < 0) return "recette invalide";
+            _componentPurchase.TryGetValue(cost.resource, out int required);
+            _componentPurchase[cost.resource] = required + cost.amount;
+        }
+
+        long total = 0;
+        bool hasDeficit = false;
+        foreach (var requirement in _componentPurchase)
+        {
+            var resource = requirement.Key;
+            if (requirement.Value > resource.maxStackSize) return "capacité des réserves insuffisante";
+            int missing = requirement.Value - stock.GetAmount(resource);
+            if (missing <= 0) continue;
+            hasDeficit = true;
+            total += GetBuyPrice(resource, missing);
+        }
+        if (!hasDeficit) return null;
+        if (total > int.MaxValue || !SpendGold((int)total)) return "or insuffisant pour l’achat automatique";
+
+        foreach (var requirement in _componentPurchase)
+        {
+            var resource = requirement.Key;
+            int missing = requirement.Value - stock.GetAmount(resource);
+            if (missing <= 0) continue;
+            stock.AddResource(resource, missing);
+            DriftPrice(resource, missing * priceDriftPerUnit * resource.priceVolatility);
+        }
+        BuildingManager.Instance.RecordTransactionWork(BuildingType.Market);
+        return null;
     }
 
     private void DriftPrice(ResourceSO resource, float delta)
@@ -201,7 +269,6 @@ public class EconomyManager : MonoBehaviour
         int netToGuild = GetEquipmentSellPrice(item);
         if (!GuildInventory.Instance.RemoveEquipment(equipmentId)) return false;
         AddGold(netToGuild);
-        BuildingManager.Instance?.RecordTransactionWork(BuildingType.Market);
         return true;
     }
 
@@ -223,27 +290,33 @@ public class EconomyManager : MonoBehaviour
         if (_autoSaleRemaining > 0f) return;
         _autoSaleRemaining = AutoSaleInterval;
 
+        var item = FindAutoSaleItem();
+        if (item == null) return;
+        var merchant = GetSellingMerchant();
+        int revenue = GetEquipmentSellPrice(item);
+        if (!SellEquipment(item.equipmentId)) return;
+        AutoSoldCount++;
+        AutoSaleRevenue += revenue;
+        merchant?.AddWorkFatigue(1f);
+    }
+
+    public bool CanFreeEquipmentSlotAutomatically => AutoSellEquipment && HasActiveMerchant && FindAutoSaleItem() != null;
+
+    private EquipmentInstance FindAutoSaleItem()
+    {
         var equipment = EquipmentManager.Instance;
-        if (equipment == null) return;
+        if (equipment == null) return null;
         foreach (var item in equipment.GetStoredEquipment())
-        {
-            if (item.definition == null || (int)item.quality > (int)AutoSellMaxQuality) continue;
-            int revenue = GetEquipmentSellPrice(item);
-            if (revenue <= 0) continue;
-            if (SellEquipment(item.equipmentId))
-            {
-                AutoSoldCount++;
-                AutoSaleRevenue += revenue;
-            }
-            return;
-        }
+            if (item.definition != null && (int)item.quality <= (int)AutoSellMaxQuality && GetEquipmentSellPrice(item) > 0)
+                return item;
+        return null;
     }
 
     public int GetEquipmentSellPrice(EquipmentInstance item)
     {
         if (item?.definition == null) return 0;
 
-        int salePrice  = item.definition.GetGoldValue(item.quality);
+        int salePrice = Mathf.RoundToInt(item.definition.GetGoldValue(item.quality) * (1f + MarketSaleBonus));
         int netToGuild = salePrice;
 
         if (!string.IsNullOrEmpty(item.craftedByAdventurerId))

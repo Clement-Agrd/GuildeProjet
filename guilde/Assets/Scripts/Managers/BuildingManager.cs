@@ -23,6 +23,7 @@ public partial class BuildingManager : MonoBehaviour
     public event Action<Building, Adventurer>     OnAdventurerAssigned;
     public event Action<Building, Adventurer>     OnAdventurerUnassigned;
     public event Action<Building, ProductionTask> OnProductionCompleted;
+    public event Action<Building, ProductionTask, string> OnProductionBlocked;
     public event Action<Adventurer, JobType, int> OnWorkerJobLevelUp;
 
     private void Awake()
@@ -176,13 +177,21 @@ public partial class BuildingManager : MonoBehaviour
         }
     }
 
-    public string GetProductionSupplyIssue(CraftRecipeSO recipe)
+    public string GetProductionSupplyIssue(CraftRecipeSO recipe, string componentBlockReason = null)
     {
+        if (recipe == null) return "Recette indisponible";
         if (recipe.ProducesEquipment && !GuildInventory.Instance.CanReserveEquipmentSlot)
             return "En attente d’une place en réserve";
         if (!GuildInventory.Instance.HasResources(recipe.inputResources))
-            return "En attente de composants";
+            return componentBlockReason ?? "En attente de composants";
         return null;
+    }
+
+    public bool CanQueueProduction(CraftRecipeSO recipe)
+    {
+        var stock = GuildInventory.Instance;
+        if (recipe.ProducesEquipment && !stock.CanReserveEquipmentSlot) return false;
+        return stock.HasResources(recipe.inputResources) || EconomyManager.Instance.AutoBuyComponents;
     }
 
     public bool StartProduction(Adventurer adventurer, CraftRecipeSO recipe, int quantity = 1)
@@ -200,34 +209,52 @@ public partial class BuildingManager : MonoBehaviour
 
         var jobInst = adventurer.GetJobInstance(adventurer.currentJobType);
         if (jobInst == null || jobInst.currentLevel < recipe.requiredJobLevel) return false;
-        if (GetProductionSupplyIssue(recipe) != null) return false;
+        if (!CanQueueProduction(recipe)) return false;
 
-        float efficiency   = jobInst.GetEfficiencyBonus(jobDef);
-        float qualityBonus = jobInst.GetQualityBonus(jobDef);
-        float duration     = recipe.GetActualDuration(efficiency);
+        var stock = GuildInventory.Instance;
+        bool hasComponents = stock.HasResources(recipe.inputResources);
+
+        var (duration, qualityBonus) = JobPerformance.GetCrafting(adventurer, recipe, jobDef);
 
         var task = new ProductionTask(recipe, adventurer.id, duration, qualityBonus)
         {
-            seriesQuantity = quantity
+            seriesQuantity = quantity,
+            awaitingInputs = !hasComponents
         };
         building.AddTask(task);
-        GuildInventory.Instance.ConsumeResources(recipe.inputResources);
+        if (hasComponents) stock.ConsumeResources(recipe.inputResources);
         return true;
     }
 
     private void StartWaitingUnits(Building building)
     {
+        var stock = GuildInventory.Instance;
         foreach (var task in building.activeTasks)
         {
             if (!task.awaitingInputs || !building.HasWorker(task.assignedAdventurerId)) continue;
             var recipe = task.recipe;
-            if (recipe == null || GetProductionSupplyIssue(recipe) != null) continue;
+            if (recipe == null || (recipe.ProducesEquipment && !stock.CanReserveEquipmentSlot)) continue;
             var worker = AdventurerManager.Instance.GetById(task.assignedAdventurerId);
             var job = worker?.GetJobInstance(task.craftedByJobType);
             if (job == null || worker.currentStateType != AdventurerStateType.Working) continue;
-            var jobDef = GetJobDefinition(task.craftedByJobType);
-            task.BeginUnit(recipe.GetActualDuration(job.GetEfficiencyBonus(jobDef)), job.GetQualityBonus(jobDef));
-            GuildInventory.Instance.ConsumeResources(recipe.inputResources);
+
+            if (!stock.HasResources(recipe.inputResources))
+            {
+                string blocked = EconomyManager.Instance.BuyMissingComponents(recipe.inputResources);
+                if (blocked != null)
+                {
+                    if (task.ComponentBlockReason != blocked)
+                    {
+                        task.ComponentBlockReason = blocked;
+                        OnProductionBlocked?.Invoke(building, task, blocked);
+                    }
+                    continue;
+                }
+            }
+            task.ComponentBlockReason = null;
+            var (duration, qualityBonus) = JobPerformance.GetCrafting(worker, recipe, GetJobDefinition(task.craftedByJobType));
+            task.BeginUnit(duration, qualityBonus);
+            stock.ConsumeResources(recipe.inputResources);
         }
     }
 

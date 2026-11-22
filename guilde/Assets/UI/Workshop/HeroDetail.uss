@@ -76,6 +76,23 @@
 }
 
 .profile-job Button { margin: 2px 4px 2px 8px; min-width: 76px; min-height: 28px; padding: 4px 8px; }
+.job-performance { margin-top: 3px; margin-bottom: 5px; }
+.job-effect-row { flex-direction: row; align-items: center; justify-content: space-between; padding: 2px 4px; }
+.job-effect-row > .profile-secondary { flex-shrink: 1; min-width: 0; }
+.job-effect-row:hover, .job-effect-row:focus { background-color: #ecd7a4; }
+.job-effect-value { color: #352216; font-size: 13px; -unity-font-style: bold; margin-left: 6px; white-space: normal; }
+.job-effect-tooltip {
+    position: absolute;
+    display: none;
+    white-space: normal;
+    background-color: #332519;
+    color: #ffe5b6;
+    font-size: 14px;
+    padding: 10px;
+    border-width: 1px;
+    border-color: #b98b54;
+    border-radius: 4px;
+}
 .profile-trait { padding: 4px 0; }
 
 .profile-stat-icon--Vitalite { background-image: url("HeroStats/Vitalite.png"); }

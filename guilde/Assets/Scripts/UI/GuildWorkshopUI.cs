@@ -67,6 +67,7 @@ public partial class GuildWorkshopUI : MonoBehaviour
         if (_bound) return;
         if (!equipment) return;
         _bound = true;
+        clock.OnSpeedChanged += HandleJournalSpeed;
         _equipmentPanel = new GuildEquipmentPanel(this, equipment, inventory, adventurers, Notify, MarkDirty);
         equipment.OnEquipmentChanged += MarkDirty;
         game.OnNewGameStarted += HandleNewGame;
@@ -82,6 +83,7 @@ public partial class GuildWorkshopUI : MonoBehaviour
         buildings.OnAdventurerAssigned += HandleAssigned;
         buildings.OnAdventurerUnassigned += HandleUnassigned;
         buildings.OnProductionCompleted += HandleProduction;
+        buildings.OnProductionBlocked += HandleProductionBlocked;
         buildings.OnBuildingUpgraded += HandleUpgrade;
         economy.OnGoldChanged += HandleGold;
         economy.OnBankruptcyStarted += HandleBankruptcy;
@@ -89,14 +91,16 @@ public partial class GuildWorkshopUI : MonoBehaviour
         inventory.OnResourceChanged += HandleResource;
         inventory.OnEquipmentAdded += HandleEquipment;
         inventory.OnEquipmentRemoved += HandleEquipmentRemoved;
-        AddJournal("La charte est signée. Votre guilde dispose de 500 pièces d'or et de ses premières réserves.", pause: false);
+        AddJournal("La charte est signée. Votre guilde dispose de 500 pièces d'or et de ses premières réserves.");
         MarkDirty();
     }
 
     private void OnDisable()
     {
+        HideJobPreviewTooltip();
         if (!_bound) return;
         _bound = false;
+        clock.OnSpeedChanged -= HandleJournalSpeed;
         equipment.OnEquipmentChanged -= MarkDirty;
         game.OnNewGameStarted -= HandleNewGame;
         buildings.OnGuildActivity -= Notify;
@@ -111,6 +115,7 @@ public partial class GuildWorkshopUI : MonoBehaviour
         buildings.OnAdventurerAssigned -= HandleAssigned;
         buildings.OnAdventurerUnassigned -= HandleUnassigned;
         buildings.OnProductionCompleted -= HandleProduction;
+        buildings.OnProductionBlocked -= HandleProductionBlocked;
         buildings.OnBuildingUpgraded -= HandleUpgrade;
         economy.OnGoldChanged -= HandleGold;
         economy.OnBankruptcyStarted -= HandleBankruptcy;
@@ -167,6 +172,7 @@ public partial class GuildWorkshopUI : MonoBehaviour
 
     private void Render()
     {
+        HideJobPreviewTooltip();
         _dirty = false;
         var screen = _root.Q("workshop-screen");
         screen.EnableInClassList("equipment-view", _view == "equipment");
@@ -275,6 +281,7 @@ public partial class GuildWorkshopUI : MonoBehaviour
         if (!buildings.CanHire) Text(_content, "Recrutement fermé. Vérifiez la capacité au quartier général.", "empty");
         var refresh = Text(_content, "", "card-meta");
         _liveUpdates.Add(() => refresh.text = $"Nouvelles candidatures dans {adventurers.RecruitRefreshRemaining:0} s de jeu.");
+        Text(_content, $"Chance qu’une nouvelle recrue ait déjà un niveau de métier · {adventurers.TrainedRecruitChance:P1}", "card-meta");
         var offers = adventurers.GetRecruitPool();
         _expandedRecruits.RemoveWhere(id => !offers.Exists(offer => offer.candidate.id == id));
         var grid = new VisualElement();
@@ -387,10 +394,10 @@ public partial class GuildWorkshopUI : MonoBehaviour
                 progress.value = task.ProgressPercent;
                 progress.title = !b.IsActive ? "Suspendue pendant l’amélioration" : !b.HasWorker(task.assignedAdventurerId)
                     ? "En pause · réaffectez cet artisan ici" : task.awaitingInputs
-                        ? buildings.GetProductionSupplyIssue(task.recipe) ?? "Prête à reprendre"
+                        ? buildings.GetProductionSupplyIssue(task.recipe, task.ComponentBlockReason) ?? "Prête à reprendre"
                         : $"Fabrication · {task.ProgressPercent:0} %";
             });
-            ActionButton(card, task.IsSeries ? "Arrêter la série maintenant" : "Annuler et récupérer les composants",
+            ActionButton(card, task.IsSeries ? "Arrêter la série maintenant" : task.awaitingInputs ? "Annuler la commande" : "Annuler et récupérer les composants",
                 () => { buildings.CancelProduction(b.buildingId, task.taskId); MarkDirty(); });
             if (task.IsSeries && !task.stopAfterCurrentUnit && (task.HasNextUnit || task.awaitingInputs))
             {
@@ -432,7 +439,9 @@ public partial class GuildWorkshopUI : MonoBehaviour
     {
         Heading("LES AFFAIRES REPRENNENT", "Le marché");
         RenderTradeStaff(BuildingType.Market);
-        RenderAutoSales();
+        if (economy.HasActiveMerchant)
+            Text(_content, $"Ventes +{economy.MarketSaleBonus:P0} grâce au meilleur marchand en poste.", "card-meta");
+        RenderMarketAutomation();
         Subheading("LES RÉSERVES");
         foreach (var resource in inventory.ResourceDefinitions)
         {
@@ -599,13 +608,14 @@ public partial class GuildWorkshopUI : MonoBehaviour
     private void HandleNewGame()
     {
         _selectedId = null; _view = "courtyard"; _journal.Clear(); _hasCrafted = false; _hasSold = false;
+        _journalPausedClock = false;
         _stockFullNotified = false;
         _recipeToReveal = null;
         _seriesQuantities.Clear();
         CloseReplacement();
         if (_content is ScrollView scroll) scroll.scrollOffset = Vector2.zero;
         _root.Q<Label>("status").text = "Votre première commande vous attend.";
-        AddJournal("Une nouvelle charte, un nouveau départ. Votre guilde vous attend.", pause: false);
+        AddJournal("Une nouvelle charte, un nouveau départ. Votre guilde vous attend.");
         MarkDirty();
     }
     private void HandleHired(Adventurer a) => Notify($"{a.adventurerName} rejoint la guilde.");
@@ -629,12 +639,37 @@ public partial class GuildWorkshopUI : MonoBehaviour
         string message = task.stopAfterCurrentUnit ? $"Série arrêtée après fabrication · {recipe.recipeName} ×{task.seriesUnit}."
             : task.IsSeries ? $"Série terminée · {recipe.recipeName} ×{task.seriesQuantity}."
             : $"{recipe.recipeName} · fabrication terminée (qualité {QualityLabel(task.rolledQuality)}).";
-        Notify(message, new JournalAction { Label = "Relancer la fabrication", Execute = () => OpenProductionRecipe(b.buildingType, recipe) });
+        var worker = adventurers.GetById(task.assignedAdventurerId);
+        int quantity = task.IsSeries ? task.seriesQuantity
+            : _seriesQuantities.TryGetValue(recipe, out int saved) && saved >= 2 ? saved : 5;
+        bool WorkerNeedsOrder() => worker != null && adventurers.GetById(worker.id) == worker
+            && b.HasWorker(worker.id) && buildings.GetTaskForWorker(worker.id) == null;
+        AddDecision(message, WorkerNeedsOrder, new JournalAction
+        {
+            Label = "Relancer une série",
+            GetBlockedReason = () => !WorkerNeedsOrder() || !b.IsActive ? "Artisan ou bâtiment indisponible."
+                : buildings.CanQueueProduction(recipe) ? null : buildings.GetProductionSupplyIssue(recipe),
+            Resolve = () => StartCraft(b, recipe, quantity, worker)
+        }, new JournalAction
+        {
+            Label = b.buildingType == BuildingType.Forge ? "Aller à la forge" : "Aller à l’atelier",
+            Execute = () => OpenProductionRecipe(b.buildingType, recipe)
+        }, IgnoreDecision());
+    }
+    private void HandleProductionBlocked(Building building, ProductionTask task, string reason)
+    {
+        Notify($"{building.definition.buildingName} · {task.recipe.recipeName} en attente : {reason}.", new JournalAction
+        {
+            Label = "Ouvrir le marché",
+            Execute = ShowMarket
+        }, blocksProgress: true, needsDecision: () => building.activeTasks.Contains(task) && task.awaitingInputs
+            && !inventory.HasResources(task.recipe.inputResources));
     }
     private void HandleUpgrade(Building b) => Notify($"{b.definition.buildingName} atteint le niveau {b.currentLevel}.");
     private void HandleGold(int amount) => MarkDirty();
     private void HandleResource(ResourceSO resource, int amount) => MarkDirty();
     private void HandleEquipment(EquipmentInstance item) { CheckEquipmentStock(); MarkDirty(); }
     private void HandleEquipmentRemoved(string id) { CheckEquipmentStock(); MarkDirty(); }
-    private void HandleBankruptcy() => Notify("La trésorerie est vide. Le moral baisse tant que la guilde est en faillite.");
+    private void HandleBankruptcy() => Notify("La trésorerie est vide. Le moral baisse tant que la guilde est en faillite.", null,
+        blocksProgress: true, needsDecision: () => economy.IsBankrupt);
 }

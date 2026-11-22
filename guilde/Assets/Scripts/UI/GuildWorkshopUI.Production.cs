@@ -28,7 +28,17 @@ public partial class GuildWorkshopUI
             card.schedule.Execute(() => scroll.ScrollTo(card)).StartingIn(1);
         }
 
-        Text(card, $"{Costs(recipe.inputResources)} · {recipe.baseCraftDuration:0} s · métier niv. {recipe.requiredJobLevel}", "card-meta");
+        var availableWorker = FindFreeWorker(building, recipe);
+        Text(card, $"{Costs(recipe.inputResources)} · métier niv. {recipe.requiredJobLevel}", "card-meta");
+        if (availableWorker == null)
+            Text(card, $"{recipe.baseCraftDuration:0.##} s par pièce (durée de base)", "card-meta");
+        else
+        {
+            var crafting = JobPerformance.GetCrafting(availableWorker, recipe, buildings.GetJobDefinition(recipe.requiredJob));
+            float duration = crafting.Duration / building.ProductionSpeedMultiplier;
+            string odds = recipe.ProducesEquipment ? $" · Rare ou mieux {(1f - recipe.GetQualityChances(crafting.QualityBonus).Normal):P1}" : "";
+            Text(card, $"{availableWorker.adventurerName} · {duration:0.##} s par pièce{odds}", "card-meta");
+        }
         var controls = new VisualElement();
         controls.AddToClassList("row");
         card.Add(controls);
@@ -42,8 +52,7 @@ public partial class GuildWorkshopUI
         controls.Add(quantity);
         var series = ActionButton(controls, "Fabriquer en série", () => StartCraft(building, recipe, ClampSeriesQuantity(quantity.value)));
         series.name = "series-" + recipe.name;
-        bool canStart = building.IsActive && FindFreeWorker(building, recipe) != null
-            && buildings.GetProductionSupplyIssue(recipe) == null;
+        bool canStart = building.IsActive && availableWorker != null && buildings.CanQueueProduction(recipe);
         craft.SetEnabled(canStart);
         series.SetEnabled(canStart && quantity.value >= 2);
         quantity.RegisterValueChangedCallback(evt =>
@@ -73,32 +82,39 @@ public partial class GuildWorkshopUI
         return task.awaitingInputs ? status + " · en attente" : status;
     }
 
-    private void StartCraft(Building building, CraftRecipeSO recipe, int quantity)
+    private bool StartCraft(Building building, CraftRecipeSO recipe, int quantity, Adventurer worker = null)
     {
-        var worker = FindFreeWorker(building, recipe);
+        worker ??= FindFreeWorker(building, recipe);
         if (worker != null && buildings.StartProduction(worker, recipe, quantity))
         {
             string amount = quantity > 1 ? $" ×{quantity}" : "";
             Notify($"Commande lancée · {recipe.recipeName}{amount}.");
+            return true;
         }
-        else
-        {
-            Notify(buildings.GetProductionSupplyIssue(recipe) ?? "Aucun artisan qualifié et libre.");
-        }
+        Notify(buildings.GetProductionSupplyIssue(recipe) ?? "Aucun artisan qualifié et libre.");
+        return false;
     }
 
-    private void RenderAutoSales()
+    private void RenderMarketAutomation()
     {
-        Subheading("VENTE AUTOMATIQUE");
+        Subheading("TRANSACTIONS AUTOMATIQUES");
         if (!economy.HasActiveMerchant)
         {
-            Text(_content, "Affectez un marchand pour activer la vente automatique.", "card-meta");
+            Text(_content, "Affectez un marchand pour automatiser les achats et les ventes.", "card-meta");
             return;
         }
 
         var panel = new VisualElement();
         panel.AddToClassList("card");
         _content.Add(panel);
+        var autoBuy = new Toggle("Acheter les composants manquants") { name = "auto-buy-components", value = economy.AutoBuyComponents };
+        panel.Add(autoBuy);
+        autoBuy.RegisterValueChangedCallback(evt =>
+        {
+            economy.ConfigureAutoPurchases(evt.newValue);
+            MarkDirty();
+        });
+        Text(panel, "Forge et Atelier · achète au prix du marché le nécessaire pour la prochaine pièce.", "card-meta");
         var options = new VisualElement();
         options.AddToClassList("row");
         panel.Add(options);
@@ -131,6 +147,8 @@ public partial class GuildWorkshopUI
         if (_stockFullNotified || !game.IsInitialized) return;
         _stockFullNotified = true;
         Notify($"Inventaire d’équipement plein ({inventory.EquipmentCount}/{inventory.EquipmentCapacity}). Libérez de la place au marché.",
-            new JournalAction { Label = "Ouvrir le marché", Execute = ShowMarket });
+            new JournalAction { Label = "Ouvrir le marché", Execute = ShowMarket },
+            blocksProgress: !economy.CanFreeEquipmentSlotAutomatically,
+            needsDecision: () => inventory.IsEquipmentFull && !economy.CanFreeEquipmentSlotAutomatically);
     }
 }

@@ -64,8 +64,7 @@ public class Building
 
     private void TickProduction(float deltaTime)
     {
-        float speedBonus = definition?.GetLevelData(currentLevel).productionSpeedBonus ?? 0f;
-        float dt         = deltaTime * (1f + speedBonus);
+        float dt = deltaTime * ProductionSpeedMultiplier;
 
         for (int i = activeTasks.Count - 1; i >= 0; i--)
         {
@@ -102,6 +101,8 @@ public class Building
 
     public BuildingLevelData GetCurrentLevelData()
         => definition?.GetLevelData(currentLevel) ?? new BuildingLevelData();
+
+    public float ProductionSpeedMultiplier => 1f + (definition?.GetLevelData(currentLevel).productionSpeedBonus ?? 0f);
 
     public BuildingLevelData GetNextLevelData()
         => definition?.GetLevelData(currentLevel + 1) ?? new BuildingLevelData();

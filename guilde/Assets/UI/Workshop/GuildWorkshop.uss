@@ -75,6 +75,10 @@ Button.active-speed { background-color: #efc273; color: #352216; }
 .epic { color: #643c79; }
 .legendary { color: #884911; }
 .footer { flex-direction: row; justify-content: space-between; align-items: center; padding-top: 12px; }
+.footer-notification { flex-grow: 1; flex-shrink: 1; min-width: 0; flex-direction: row; align-items: center; flex-wrap: wrap; }
+.footer-notification #status { margin-right: 12px; flex-shrink: 1; }
+#status-actions .journal-action { min-height: 26px; padding: 3px 8px; }
+#status-actions .journal-action-status { color: #e6c89e; }
 .drag-ghost { border-color: #80501f; border-width: 2px; position: absolute; display: none; background-color: #f4cc82; color: #382215; padding: 12px; border-radius: 6px; -unity-font-style: bold; }
 .overlay { display: none; position: absolute; left: 0; right: 0; top: 0; bottom: 0; background-color: rgba(33, 19, 12, 0.82); align-items: center; justify-content: center; }
 .modal { width: 480px; padding: 30px; }

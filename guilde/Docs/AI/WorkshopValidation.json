@@ -1,5 +1,5 @@
 {
-    "checkedAtUtc": "2026-11-21T22:38:40.4890817Z",
+    "checkedAtUtc": "2026-11-21T23:23:57.6730508Z",
     "unityVersion": "6000.3.11f1",
     "passed": true,
     "checks": [
@@ -95,6 +95,7 @@
         "La vente limitée au stock plein attend que l'inventaire soit rempli",
         "La série attend une place sans payer la pièce suivante",
         "La vente automatique libère une place et respecte l'équipement porté",
+        "La vente automatique fatigue le marchand",
         "La série reprend seule quand une place se libère",
         "La pièce suivante remplit à nouveau le stock",
         "Annuler une série en attente ne restitue aucun composant non payé",
@@ -108,7 +109,19 @@
         "L’arrêt différé conserve la pièce en fabrication",
         "L’arrêt différé livre exactement une pièce et ne démarre pas la suivante",
         "Une série peut être planifiée près de la limite du stock",
-        "L’arrêt différé clôt immédiatement une série sans pièce en cours"
+        "L’arrêt différé clôt immédiatement une série sans pièce en cours",
+        "L’achat automatique demande un marchand",
+        "Un forgeron et un marchand sont affectés pour tester le réapprovisionnement",
+        "Une montée de niveau apparaît dans le journal sans mettre le jeu en pause",
+        "Les achats et ventes manuels ne fatiguent pas le marchand",
+        "La commande sans stock est refusée tant que les achats automatiques sont désactivés",
+        "La commande est acceptée avec le réapprovisionnement activé",
+        "Sans marchand, la commande attend et le journal signale un blocage",
+        "Le marchand peut reprendre son poste",
+        "Si l’or manque, aucun achat partiel ni fatigue",
+        "L’achat automatique paie seulement les composants manquants et fatigue le marchand sans interrompre le jeu",
+        "Les pièces suivantes d’une série peuvent à leur tour être réapprovisionnées",
+        "La fin de série est annoncée sans arrêter le temps"
     ],
     "failure": ""
 }

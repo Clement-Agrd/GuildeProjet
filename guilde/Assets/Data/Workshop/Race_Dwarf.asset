@@ -12,7 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 0f4fed4312ed4bb58522e45665f0e492, type: 3}
   m_Name: Race_Dwarf
   m_EditorClassIdentifier: Assembly-CSharp::AdventurerRaceSO
-  raceName: Nain
+  raceName: Nain des montagnes
   description: 
   raceType: 2
   icon: {fileID: 0}
@@ -21,5 +21,10 @@ MonoBehaviour:
     value: 3
   - stat: 1
     value: 2
+  jobEffects:
+  - effect: 0
+    bonus: 0.10
+  - effect: 8
+    bonus: 0.08
   raceRelationModifiers: []
   racialTraits: []

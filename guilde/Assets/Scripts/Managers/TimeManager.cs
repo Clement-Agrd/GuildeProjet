@@ -70,7 +70,12 @@ public class TimeManager : MonoBehaviour
     }
 
     public void TogglePause()
-        => SetSpeed(CurrentSpeed == GameSpeed.Paused ? _resumeSpeed : GameSpeed.Paused);
+    {
+        if (CurrentSpeed == GameSpeed.Paused) Resume();
+        else SetSpeed(GameSpeed.Paused);
+    }
+
+    public void Resume() => SetSpeed(_resumeSpeed);
 
     private void HandlePauseShortcut(InputAction.CallbackContext context)
     {

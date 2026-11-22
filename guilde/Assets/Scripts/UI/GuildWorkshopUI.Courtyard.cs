@@ -99,16 +99,21 @@ public partial class GuildWorkshopUI
             if (worker == null) continue;
             var card = Card(panel, worker.adventurerName);
             Text(card, $"Niv. {worker.GetJobInstance(job)?.currentLevel ?? 0}", "card-meta");
+            RenderJobPerformance(card, worker, job, b);
             ActionButton(card, "Libérer le poste", () => buildings.UnassignAdventurer(worker)).name = "release-" + id;
         }
 
-        if (!b.IsActive || !b.HasFreeSlot) return;
+        if (!b.IsActive) return;
         var selected = adventurers.GetById(_selectedId);
         if (selected?.IsAvailable != true)
         {
-            Text(panel, "Cliquez sur le nom d’un aventurier disponible à droite pour le sélectionner.", "card-meta");
+            if (b.HasFreeSlot) Text(panel, "Cliquez sur le nom d’un aventurier disponible à droite pour le sélectionner.", "card-meta");
             return;
         }
+
+        Text(panel, $"Aperçu · {selected.adventurerName}", "tag");
+        RenderJobPerformance(panel, selected, job, b);
+        if (!b.HasFreeSlot) return;
 
         int salary = selected.CalculateSalary(definition);
         ActionButton(panel, $"Affecter {selected.adventurerName} · {salary} or",
@@ -166,7 +171,7 @@ public partial class GuildWorkshopUI
         Subheading($"EFFECTIF DE LA GUILDE · {buildings.RosterOccupancy}/{buildings.RosterCapacity}");
         Subheading("TABLEAU DES MISSIONS");
         Text(_content, $"{buildings.MissionOffers.Count} offres · capacité de recherche {buildings.MissionCapacity}", "tag");
-        Text(_content, $"Une recherche toutes les {buildings.MissionInterval:0.#} s de jeu. Les éclaireurs augmentent la capacité, la vitesse et les chances de trouver de meilleurs contrats.", "card-meta");
+        Text(_content, $"Une recherche toutes les {buildings.MissionInterval:0.#} s de jeu · Contrat prestigieux {buildings.MissionPrestigiousChance:P1}", "card-meta");
         var progress = new ProgressBar { lowValue = 0, highValue = 100 };
         progress.AddToClassList("task-progress");
         _content.Add(progress);

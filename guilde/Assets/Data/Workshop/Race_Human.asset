@@ -17,5 +17,32 @@ MonoBehaviour:
   raceType: 0
   icon: {fileID: 0}
   statModifiers: []
+  jobEffects:
+  - effect: 0
+    bonus: 0.02
+  - effect: 1
+    bonus: 0.01
+  - effect: 2
+    bonus: 0.02
+  - effect: 3
+    bonus: 0.01
+  - effect: 4
+    bonus: 0.02
+  - effect: 5
+    bonus: 0.04
+  - effect: 6
+    bonus: 0.04
+  - effect: 7
+    bonus: 0.01
+  - effect: 8
+    bonus: 0.04
+  - effect: 9
+    bonus: 0.02
+  - effect: 10
+    bonus: 0.01
+  - effect: 11
+    bonus: 0.04
+  - effect: 12
+    bonus: -0.06
   raceRelationModifiers: []
   racialTraits: []

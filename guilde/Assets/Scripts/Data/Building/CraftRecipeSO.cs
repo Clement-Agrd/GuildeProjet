@@ -33,16 +33,20 @@ public class CraftRecipeSO : ScriptableObject
 
     public EquipmentQuality RollQuality(float qualityBonus)
     {
-        // Le bonus redistribue du Normal vers les raretés supérieures
-        float leg  = legendaryChance + qualityBonus * 0.15f;
-        float epic = epicChance      + qualityBonus * 0.35f;
-        float rare = rareChance      + qualityBonus * 0.50f;
-
+        var chances = GetQualityChances(qualityBonus);
         float roll = Random.value;
-        if (roll < leg)                return EquipmentQuality.Legendary;
-        if (roll < leg + epic)         return EquipmentQuality.Epic;
-        if (roll < leg + epic + rare)  return EquipmentQuality.Rare;
+        if (roll < chances.Legendary) return EquipmentQuality.Legendary;
+        if (roll < chances.Legendary + chances.Epic) return EquipmentQuality.Epic;
+        if (roll < 1f - chances.Normal) return EquipmentQuality.Rare;
         return EquipmentQuality.Normal;
+    }
+
+    public (float Normal, float Rare, float Epic, float Legendary) GetQualityChances(float qualityBonus)
+    {
+        float legendary = Mathf.Clamp01(legendaryChance + qualityBonus * 0.15f);
+        float epic = Mathf.Clamp(epicChance + qualityBonus * 0.35f, 0f, 1f - legendary);
+        float rare = Mathf.Clamp(rareChance + qualityBonus * 0.50f, 0f, 1f - legendary - epic);
+        return (1f - legendary - epic - rare, rare, epic, legendary);
     }
 
     public float GetActualDuration(float efficiencyBonus)

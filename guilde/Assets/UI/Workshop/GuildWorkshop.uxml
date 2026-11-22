@@ -18,7 +18,7 @@
             <ui:VisualElement class="time-controls">
                 <ui:Label name="clock" text="00:00" class="clock" />
                 <ui:VisualElement class="row">
-                    <ui:Toggle name="auto-pause" text="Auto" tooltip="Mettre le jeu en pause à chaque nouveau message du journal" class="auto-pause" />
+                    <ui:Toggle name="auto-pause" text="Auto" tooltip="Mettre le jeu en pause quand une décision peut éviter une perte de temps" class="auto-pause" />
                     <ui:Button name="pause" text="Pause" tooltip="Mettre en pause ou reprendre (Espace)" />
                     <ui:Button name="speed-1" text="×1" />
                     <ui:Button name="speed-2" text="×2" />
@@ -58,7 +58,10 @@
             </ui:VisualElement>
         </ui:VisualElement>
         <ui:VisualElement class="footer">
-            <ui:Label name="status" text="Votre première commande vous attend." class="muted" />
+            <ui:VisualElement class="footer-notification">
+                <ui:Label name="status" text="Votre première commande vous attend." class="muted wrap" />
+                <ui:VisualElement name="status-actions" />
+            </ui:VisualElement>
             <ui:Button name="new-game" text="Nouvelle partie" class="quiet" />
         </ui:VisualElement>
         <ui:Label name="drag-ghost" class="drag-ghost" picking-mode="Ignore" />

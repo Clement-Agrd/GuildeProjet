@@ -15,6 +15,7 @@ public partial class BuildingManager
     private readonly List<ServiceSession> _sessions = new();
     private readonly List<(Adventurer Worker, float Duration)> _workerActivity = new();
     private readonly List<string> _missionOffers = new();
+    private const float PrestigiousMissionThreshold = 1.15f;
     private float _discoveryProgress;
     private int _missionsFound;
 
@@ -50,7 +51,7 @@ public partial class BuildingManager
             var hq = GetBuilding(BuildingType.Headquarters);
             return hq == null
                 ? float.PositiveInfinity
-                : 30f / (1f + hq.assignedAdventurerIds.Count + 0.5f * (hq.currentLevel - 1));
+                : 30f / (1f + GetScoutBonuses(hq).Speed + 0.5f * (hq.currentLevel - 1));
         }
     }
 
@@ -59,8 +60,25 @@ public partial class BuildingManager
         get
         {
             var hq = GetBuilding(BuildingType.Headquarters);
-            return hq == null ? 0f : 0.25f * hq.assignedAdventurerIds.Count + 0.1f * (hq.currentLevel - 1);
+            return hq == null ? 0f : GetScoutBonuses(hq).Quality + 0.1f * (hq.currentLevel - 1);
         }
+    }
+
+    public float MissionPrestigiousChance => Mathf.Clamp01(1f + MissionQualityBonus - PrestigiousMissionThreshold);
+
+    private static (float Speed, float Quality) GetScoutBonuses(Building headquarters)
+    {
+        float speed = 0f;
+        float quality = 0f;
+        foreach (string workerId in headquarters.assignedAdventurerIds)
+        {
+            var scout = AdventurerManager.Instance.GetById(workerId);
+            if (scout == null) continue;
+            var bonus = JobPerformance.Scouting(scout);
+            speed += bonus.SpeedBonus;
+            quality += bonus.QualityBonus;
+        }
+        return (speed, quality);
     }
 
     public int MissionCapacity
@@ -218,7 +236,7 @@ public partial class BuildingManager
             if (!b.IsActive || b.assignedAdventurerIds.Count == 0) continue;
             if (b.buildingType is BuildingType.Forge or BuildingType.Workshop)
             {
-                float speed = 1f + b.GetCurrentLevelData().productionSpeedBonus;
+                float speed = b.ProductionSpeedMultiplier;
                 if (speed <= 0f) continue;
                 foreach (var task in b.activeTasks)
                 {
@@ -277,7 +295,20 @@ public partial class BuildingManager
 
             if (!b.IsActive) continue;
             int staff = b.assignedAdventurerIds.Count;
-            float rate = deltaTime * (1f + 0.25f * (b.currentLevel - 1) + 0.5f * staff);
+            float speed = 1f + 0.25f * (b.currentLevel - 1);
+            foreach (string workerId in b.assignedAdventurerIds)
+            {
+                var worker = AdventurerManager.Instance.GetById(workerId);
+                if (worker == null) continue;
+                speed += session.Type switch
+                {
+                    BuildingType.Infirmary => JobPerformance.HealingBonus(worker),
+                    BuildingType.Tavern => JobPerformance.TavernRecoveryBonus(worker),
+                    BuildingType.TrainingRoom => JobPerformance.TrainingBonus(worker),
+                    _ => 0f
+                };
+            }
+            float rate = deltaTime * speed;
             switch (session.Type)
             {
                 case BuildingType.Infirmary:
@@ -287,7 +318,7 @@ public partial class BuildingManager
                 case BuildingType.Tavern:
                     bool wasTired = a.stats.fatigue > 0f;
                     bool hadLowerMorale = a.stats.moral < 100f;
-                    a.stats.fatigue -= 8f * rate * a.GetTraitMultiplier(TraitEffectType.FatigueRecovery_Multiplier);
+                    a.stats.fatigue -= 1.8f * rate * a.RestRecoveryPerSecond;
                     a.stats.moral += 4f * rate;
                     a.stats.ClampSecondaryStats();
                     bool rested = !session.RestReported && wasTired && a.stats.fatigue <= 0f;
@@ -320,7 +351,7 @@ public partial class BuildingManager
         {
             _discoveryProgress -= 1f;
             float qualityScore = UnityEngine.Random.value + MissionQualityBonus;
-            string quality = qualityScore >= 1.15f ? "Prestigieuse" : qualityScore >= 0.8f ? "Remarquable" : "Ordinaire";
+            string quality = qualityScore >= PrestigiousMissionThreshold ? "Prestigieuse" : qualityScore >= 0.8f ? "Remarquable" : "Ordinaire";
             string offer = $"Reconnaissance des environs · contrat {++_missionsFound} · {quality}";
             _missionOffers.Add(offer);
             if (_missionOffers.Count >= MissionCapacity) _discoveryProgress = 0f;

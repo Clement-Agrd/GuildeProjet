@@ -14,6 +14,9 @@ public class AdventurerRaceSO : ScriptableObject
     [Header("Modificateurs de stats primaires")]
     public List<PrimaryStatModifier> statModifiers = new();
 
+    [Header("Bonus d’effet de métier")]
+    public List<RacialJobEffect> jobEffects = new();
+
     [Header("Relations inter-raciales")]
     public List<RaceAffinityModifier> raceRelationModifiers = new();
 
@@ -34,12 +37,29 @@ public class AdventurerRaceSO : ScriptableObject
         return 0;
     }
 
+    public float GetJobEffectBonus(JobEffectType effect)
+    {
+        if (jobEffects == null) return 0f;
+        float bonus = 0f;
+        foreach (var entry in jobEffects)
+            if (entry != null && entry.effect == effect) bonus += entry.bonus;
+        return bonus;
+    }
+
     public int GetAffinityModifierWith(Race otherRace)
     {
         foreach (var mod in raceRelationModifiers)
             if (mod.targetRace == otherRace) return mod.affinityStartModifier;
         return 0;
     }
+}
+
+[Serializable]
+public class RacialJobEffect
+{
+    public JobEffectType effect;
+    [Tooltip("0,10 ajoute 10 points de pourcentage. Pour la fatigue, -0,10 retire 0,10 point par unité de travail.")]
+    public float bonus;
 }
 
 [Serializable]
