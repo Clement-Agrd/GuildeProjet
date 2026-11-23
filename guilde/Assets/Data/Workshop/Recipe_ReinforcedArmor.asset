@@ -13,7 +13,7 @@ MonoBehaviour:
   m_Name: Recipe_ReinforcedArmor
   m_EditorClassIdentifier: Assembly-CSharp::CraftRecipeSO
   recipeName: "Armure renforc\xE9e"
-  description: 
+  description:
   requiredJob: 1
   requiredJobLevel: 0
   isUnlocked: 1
@@ -22,6 +22,8 @@ MonoBehaviour:
     amount: 3
   - resource: {fileID: 11400000, guid: 5a782c8caa5866446a51899f58a7c07d, type: 2}
     amount: 2
+  refinedMaterial: {fileID: 11400000, guid: a9ee5cf667d14078aef5dcdbda01a5b4, type: 2}
+  masterworkMaterial: {fileID: 11400000, guid: be911a4b40124bd9995af6a8c715ed33, type: 2}
   outputResource: {fileID: 0}
   outputResourceAmount: 1
   outputEquipment: {fileID: 11400000, guid: af73b864b29137e43b1e14092023c52f, type: 2}

@@ -39,6 +39,7 @@ public class EconomyManager : MonoBehaviour
 
     // ─── Events ───────────────────────────────────────────────────────────────
     public event Action<int>               OnGoldChanged;
+    public event Action<int>               OnMonthlyPayrollPaid;
     public event Action                    OnBankruptcyStarted;
     public event Action                    OnBankruptcyEnded;
     public event Action<ResourceSO, float> OnResourcePriceChanged;
@@ -133,11 +134,29 @@ public class EconomyManager : MonoBehaviour
     // Salaires
     // =========================================================================
 
-    /// <summary>Verse le salaire d'un aventurier. Toujours payé, quitte à entrer en faillite.</summary>
-    public void PayWage(Adventurer adventurer, JobDefinitionSO activeJobDef = null)
+    public int MonthlyPayroll => CalculatePayroll(AdventurerManager.Instance.GetAllAdventurers());
+
+    private static int CalculatePayroll(IReadOnlyList<Adventurer> roster)
     {
-        if (adventurer == null) return;
-        ForceSpendGold(adventurer.CalculateSalary(activeJobDef));
+        int total = 0;
+        foreach (var member in roster)
+            if (member.currentStateType != AdventurerStateType.Dead) total += member.CalculateSalary();
+        return total;
+    }
+
+    internal void PayMonthlyPayroll(IReadOnlyList<Adventurer> roster)
+    {
+        int total = CalculatePayroll(roster);
+        if (total == 0) return;
+        ForceSpendGold(total);
+        OnMonthlyPayrollPaid?.Invoke(total);
+    }
+
+    internal int PayCommission(Adventurer worker, JobType job, int value)
+    {
+        int commission = worker?.CalculateCommission(value, job) ?? 0;
+        ForceSpendGold(commission);
+        return commission;
     }
 
     // =========================================================================
@@ -151,7 +170,17 @@ public class EconomyManager : MonoBehaviour
         => Mathf.CeilToInt(resource.baseMarketValue * GetPriceMultiplier(resource) * buyMarkup * amount);
 
     public int GetSellPrice(ResourceSO resource, int amount)
-        => Mathf.FloorToInt(resource.baseMarketValue * GetPriceMultiplier(resource) * sellMarkdown * amount * (1f + MarketSaleBonus));
+    {
+        var merchant = GetSellingMerchant();
+        return NetSaleValue(GetResourceSaleValue(resource, amount, merchant), merchant);
+    }
+
+    private int GetResourceSaleValue(ResourceSO resource, int amount, Adventurer merchant)
+        => Mathf.FloorToInt(resource.baseMarketValue * GetPriceMultiplier(resource) * sellMarkdown * amount
+            * (1f + JobPerformance.SaleBonus(merchant)));
+
+    private static int NetSaleValue(int value, Adventurer merchant)
+        => Mathf.Max(0, value - (merchant?.CalculateCommission(value, JobType.Merchant) ?? 0));
 
     public float MarketSaleBonus => JobPerformance.SaleBonus(GetSellingMerchant());
 
@@ -165,8 +194,9 @@ public class EconomyManager : MonoBehaviour
         foreach (string id in market.assignedAdventurerIds)
         {
             var candidate = AdventurerManager.Instance.GetById(id);
+            if (candidate == null) continue;
             float bonus = JobPerformance.SaleBonus(candidate);
-            if (bonus <= bestBonus) continue;
+            if (best != null && bonus <= bestBonus) continue;
             best = candidate;
             bestBonus = bonus;
         }
@@ -189,9 +219,10 @@ public class EconomyManager : MonoBehaviour
         if (resource == null || amount <= 0) return false;
         if (GuildInventory.Instance.GetAmount(resource) < amount) return false;
 
-        int revenue = GetSellPrice(resource, amount);
+        var merchant = GetSellingMerchant();
+        int revenue = NetSaleValue(GetResourceSaleValue(resource, amount, merchant), merchant);
         GuildInventory.Instance.AddResource(resource, -amount);
-        AddGold(revenue);
+        CompleteSale(merchant, revenue);
         DriftPrice(resource, -amount * priceDriftPerUnit * resource.priceVolatility);
         return true;
     }
@@ -239,7 +270,12 @@ public class EconomyManager : MonoBehaviour
             stock.AddResource(resource, missing);
             DriftPrice(resource, missing * priceDriftPerUnit * resource.priceVolatility);
         }
-        BuildingManager.Instance.RecordTransactionWork(BuildingType.Market);
+        var merchant = GetSellingMerchant();
+        if (merchant != null)
+        {
+            merchant.AddJobExperience(JobType.Merchant, 15, BuildingManager.Instance.GetJobDefinition(JobType.Merchant));
+            merchant.AddWorkFatigue(1f);
+        }
         return null;
     }
 
@@ -261,15 +297,27 @@ public class EconomyManager : MonoBehaviour
     // =========================================================================
 
     public bool SellEquipment(string equipmentId)
+        => SellEquipment(equipmentId, GetSellingMerchant(), out _);
+
+    private bool SellEquipment(string equipmentId, Adventurer merchant, out int netRevenue)
     {
+        netRevenue = 0;
         var item = GuildInventory.Instance.GetEquipment(equipmentId);
         if (item?.definition == null) return false;
         if (EquipmentManager.Instance != null && EquipmentManager.Instance.GetOwner(equipmentId) != null) return false;
 
-        int netToGuild = GetEquipmentSellPrice(item);
+        int saleValue = GetEquipmentSaleValue(item, merchant);
         if (!GuildInventory.Instance.RemoveEquipment(equipmentId)) return false;
-        AddGold(netToGuild);
+        netRevenue = NetSaleValue(saleValue, merchant);
+        CompleteSale(merchant, netRevenue);
         return true;
+    }
+
+    private void CompleteSale(Adventurer merchant, int revenue)
+    {
+        AddGold(revenue);
+        if (merchant != null)
+            merchant.AddJobExperience(JobType.Merchant, 15, BuildingManager.Instance.GetJobDefinition(JobType.Merchant));
     }
 
     public bool ConfigureAutoSales(bool enabled, EquipmentQuality maximumQuality, bool onlyWhenFull)
@@ -293,8 +341,7 @@ public class EconomyManager : MonoBehaviour
         var item = FindAutoSaleItem();
         if (item == null) return;
         var merchant = GetSellingMerchant();
-        int revenue = GetEquipmentSellPrice(item);
-        if (!SellEquipment(item.equipmentId)) return;
+        if (!SellEquipment(item.equipmentId, merchant, out int revenue)) return;
         AutoSoldCount++;
         AutoSaleRevenue += revenue;
         merchant?.AddWorkFatigue(1f);
@@ -315,23 +362,12 @@ public class EconomyManager : MonoBehaviour
     public int GetEquipmentSellPrice(EquipmentInstance item)
     {
         if (item?.definition == null) return 0;
-
-        int salePrice = Mathf.RoundToInt(item.definition.GetGoldValue(item.quality) * (1f + MarketSaleBonus));
-        int netToGuild = salePrice;
-
-        if (!string.IsNullOrEmpty(item.craftedByAdventurerId))
-        {
-            var crafter = AdventurerManager.Instance.GetById(item.craftedByAdventurerId);
-            if (crafter != null)
-            {
-                var jobDef    = BuildingManager.Instance.GetJobDefinition(item.craftedByJobType);
-                float commission = crafter.CalculateCommission(salePrice, item.craftedByJobType, jobDef);
-                netToGuild -= Mathf.RoundToInt(commission);
-            }
-        }
-
-        return Mathf.Max(0, netToGuild);
+        var merchant = GetSellingMerchant();
+        return NetSaleValue(GetEquipmentSaleValue(item, merchant), merchant);
     }
+
+    private static int GetEquipmentSaleValue(EquipmentInstance item, Adventurer merchant)
+        => Mathf.RoundToInt(item.definition.GetGoldValue(item.quality) * (1f + JobPerformance.SaleBonus(merchant)));
 
     // =========================================================================
     // Save / Load

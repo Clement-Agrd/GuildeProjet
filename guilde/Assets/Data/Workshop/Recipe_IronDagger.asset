@@ -13,7 +13,7 @@ MonoBehaviour:
   m_Name: Recipe_IronDagger
   m_EditorClassIdentifier: Assembly-CSharp::CraftRecipeSO
   recipeName: Dague de fer
-  description: 
+  description:
   requiredJob: 1
   requiredJobLevel: 0
   isUnlocked: 1
@@ -22,6 +22,8 @@ MonoBehaviour:
     amount: 1
   - resource: {fileID: 11400000, guid: 7ae4850f0a5a1084f95f8f55172b8ad9, type: 2}
     amount: 1
+  refinedMaterial: {fileID: 11400000, guid: a9ee5cf667d14078aef5dcdbda01a5b4, type: 2}
+  masterworkMaterial: {fileID: 11400000, guid: be911a4b40124bd9995af6a8c715ed33, type: 2}
   outputResource: {fileID: 0}
   outputResourceAmount: 1
   outputEquipment: {fileID: 11400000, guid: 05228b1cc99c3314fa04dc6007dca371, type: 2}

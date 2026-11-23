@@ -12,24 +12,16 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 219467c8186448b5b73e1be9a07573b3, type: 3}
   m_Name: Class_Mage
   m_EditorClassIdentifier: Assembly-CSharp::AdventurerClassSO
-  className: Mage
-  description: 
+  className: Magicien
+  description:
   icon: {fileID: 0}
-  baseStats:
-    vitalite: 10
-    resistance: 10
-    force: 10
-    intelligence: 17
-    charisme: 12
-    sagesse: 14
-    agilite: 10
-    chance: 10
-    moral: 70
-    fatigue: 0
-    loyaute: 50
-    level: 1
-    experience: 0
-    experienceToNextLevel: 100
+  startingStatModifiers:
+  - stat: 3
+    value: 2
+  - stat: 5
+    value: 1
+  - stat: 2
+    value: -1
   masteredWeapons: 0400000005000000
   classPassives: []
   jobAffinities:

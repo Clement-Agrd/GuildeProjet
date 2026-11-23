@@ -114,10 +114,6 @@ public partial class BuildingManager : MonoBehaviour
 
         adventurer.AssignToBuilding(building.buildingId, jobType);
 
-        // Salaire versé à la prise de poste (GDO 8.5 — hypothèse : on affinera si besoin)
-        _jobByType.TryGetValue(jobType, out var jobDef);
-        EconomyManager.Instance.PayWage(adventurer, jobDef);
-
         OnAdventurerAssigned?.Invoke(building, adventurer);
         return true;
     }
@@ -155,6 +151,8 @@ public partial class BuildingManager : MonoBehaviour
         {
             if (!building.HasWorker(adventurer.id)) continue;
             building.RemoveWorker(adventurer.id);
+            if (building.buildingType == BuildingType.Headquarters) _scoutProgress.Remove(adventurer.id);
+            if (building.buildingType == BuildingType.Recruiter) AdventurerManager.Instance.ResetRecruitSearch(adventurer.id);
             OnAdventurerUnassigned?.Invoke(building, adventurer);
         }
         adventurer.OnStateChanged -= HandleWorkerStateChanged;
@@ -177,52 +175,59 @@ public partial class BuildingManager : MonoBehaviour
         }
     }
 
-    public string GetProductionSupplyIssue(CraftRecipeSO recipe, string componentBlockReason = null)
+    public string GetProductionSupplyIssue(CraftRecipeSO recipe, string componentBlockReason = null,
+        ForgeTechnique technique = ForgeTechnique.Standard)
     {
-        if (recipe == null) return "Recette indisponible";
-        if (recipe.ProducesEquipment && !GuildInventory.Instance.CanReserveEquipmentSlot)
+        if (recipe == null || !recipe.SupportsTechnique(technique)) return "Recette ou technique indisponible";
+        var stock = GuildInventory.Instance;
+        if (recipe.ProducesEquipment && !stock.CanReserveEquipmentSlot)
             return "En attente d’une place en réserve";
-        if (!GuildInventory.Instance.HasResources(recipe.inputResources))
+        if (!stock.HasResources(recipe.GetInputs(technique)))
             return componentBlockReason ?? "En attente de composants";
         return null;
     }
 
-    public bool CanQueueProduction(CraftRecipeSO recipe)
+    public bool CanQueueProduction(CraftRecipeSO recipe, ForgeTechnique technique = ForgeTechnique.Standard)
     {
+        if (recipe == null || !recipe.SupportsTechnique(technique)) return false;
         var stock = GuildInventory.Instance;
         if (recipe.ProducesEquipment && !stock.CanReserveEquipmentSlot) return false;
-        return stock.HasResources(recipe.inputResources) || EconomyManager.Instance.AutoBuyComponents;
+        return stock.HasResources(recipe.GetInputs(technique)) || EconomyManager.Instance.AutoBuyComponents;
     }
 
-    public bool StartProduction(Adventurer adventurer, CraftRecipeSO recipe, int quantity = 1)
+    public string GetProductionStartIssue(Adventurer adventurer, Building building, CraftRecipeSO recipe,
+        ForgeTechnique technique = ForgeTechnique.Standard)
     {
-        if (adventurer == null || recipe == null) return false;
+        if (building?.IsActive != true) return "Bâtiment indisponible";
+        if (adventurer == null || adventurer.currentStateType != AdventurerStateType.Working
+            || adventurer.currentBuildingId != building.buildingId || !building.HasWorker(adventurer.id))
+            return "Choisissez un aventurier affecté à ce bâtiment";
+        if (recipe == null || !recipe.isUnlocked || recipe.requiredJob != adventurer.currentJobType
+            || !allRecipes.Contains(recipe) || !recipe.SupportsTechnique(technique)
+            || (!recipe.ProducesEquipment && (recipe.outputResource == null || recipe.outputResourceAmount <= 0)))
+            return "Recette ou technique indisponible";
+        var job = adventurer.GetJobInstance(recipe.requiredJob);
+        int requiredLevel = recipe.GetRequiredJobLevel(technique);
+        if (job == null || job.currentLevel < requiredLevel)
+            return $"Niveau de métier {requiredLevel} requis";
+        if (GetTaskForWorker(adventurer.id) != null) return "Cet aventurier a déjà une commande";
+        return CanQueueProduction(recipe, technique) ? null : GetProductionSupplyIssue(recipe, technique: technique);
+    }
+
+    public bool StartProduction(Adventurer adventurer, CraftRecipeSO recipe, int quantity = 1,
+        ForgeTechnique technique = ForgeTechnique.Standard)
+    {
         if (quantity < 1 || quantity > MaxSeriesQuantity) return false;
-        if (adventurer.currentStateType != AdventurerStateType.Working) return false;
-        if (string.IsNullOrEmpty(adventurer.currentBuildingId) ||
-            !_byId.TryGetValue(adventurer.currentBuildingId, out var building)) return false;
-        if (!building.IsActive || !building.HasWorker(adventurer.id)) return false;
-        if (!recipe.isUnlocked || recipe.requiredJob != adventurer.currentJobType) return false;
-        if (!allRecipes.Contains(recipe) || GetTaskForWorker(adventurer.id) != null) return false;
-        if (!recipe.ProducesEquipment && (recipe.outputResource == null || recipe.outputResourceAmount <= 0)) return false;
-        if (!_jobByType.TryGetValue(adventurer.currentJobType, out var jobDef)) return false;
+        var building = GetBuildingById(adventurer?.currentBuildingId);
+        if (GetProductionStartIssue(adventurer, building, recipe, technique) != null) return false;
+        if (!_jobByType.TryGetValue(recipe.requiredJob, out var jobDef)) return false;
 
-        var jobInst = adventurer.GetJobInstance(adventurer.currentJobType);
-        if (jobInst == null || jobInst.currentLevel < recipe.requiredJobLevel) return false;
-        if (!CanQueueProduction(recipe)) return false;
-
+        var (duration, qualityBonus) = JobPerformance.GetCrafting(adventurer, recipe, jobDef, technique);
+        var task = new ProductionTask(recipe, adventurer.id, duration, qualityBonus, technique) { seriesQuantity = quantity };
         var stock = GuildInventory.Instance;
-        bool hasComponents = stock.HasResources(recipe.inputResources);
-
-        var (duration, qualityBonus) = JobPerformance.GetCrafting(adventurer, recipe, jobDef);
-
-        var task = new ProductionTask(recipe, adventurer.id, duration, qualityBonus)
-        {
-            seriesQuantity = quantity,
-            awaitingInputs = !hasComponents
-        };
+        task.awaitingInputs = !stock.HasResources(task.InputResources);
         building.AddTask(task);
-        if (hasComponents) stock.ConsumeResources(recipe.inputResources);
+        if (!task.awaitingInputs) stock.ConsumeResources(task.InputResources);
         return true;
     }
 
@@ -233,14 +238,16 @@ public partial class BuildingManager : MonoBehaviour
         {
             if (!task.awaitingInputs || !building.HasWorker(task.assignedAdventurerId)) continue;
             var recipe = task.recipe;
-            if (recipe == null || (recipe.ProducesEquipment && !stock.CanReserveEquipmentSlot)) continue;
+            if (recipe == null || !recipe.SupportsTechnique(task.forgeTechnique)
+                || (recipe.ProducesEquipment && !stock.CanReserveEquipmentSlot)) continue;
             var worker = AdventurerManager.Instance.GetById(task.assignedAdventurerId);
             var job = worker?.GetJobInstance(task.craftedByJobType);
-            if (job == null || worker.currentStateType != AdventurerStateType.Working) continue;
+            if (job == null || worker.currentStateType != AdventurerStateType.Working
+                || job.currentLevel < recipe.GetRequiredJobLevel(task.forgeTechnique)) continue;
 
-            if (!stock.HasResources(recipe.inputResources))
+            if (!stock.HasResources(task.InputResources))
             {
-                string blocked = EconomyManager.Instance.BuyMissingComponents(recipe.inputResources);
+                string blocked = EconomyManager.Instance.BuyMissingComponents(task.InputResources);
                 if (blocked != null)
                 {
                     if (task.ComponentBlockReason != blocked)
@@ -252,9 +259,9 @@ public partial class BuildingManager : MonoBehaviour
                 }
             }
             task.ComponentBlockReason = null;
-            var (duration, qualityBonus) = JobPerformance.GetCrafting(worker, recipe, GetJobDefinition(task.craftedByJobType));
+            var (duration, qualityBonus) = JobPerformance.GetCrafting(worker, recipe, GetJobDefinition(task.craftedByJobType), task.forgeTechnique);
             task.BeginUnit(duration, qualityBonus);
-            stock.ConsumeResources(recipe.inputResources);
+            stock.ConsumeResources(task.InputResources);
         }
     }
 
@@ -265,7 +272,7 @@ public partial class BuildingManager : MonoBehaviour
         if (task == null) return;
         building.CancelTask(taskId);
         if (task.recipe == null || task.awaitingInputs) return;
-        foreach (var cost in task.recipe.inputResources)
+        foreach (var cost in task.InputResources)
             GuildInventory.Instance.AddResource(cost.resource, cost.amount);
     }
 
@@ -327,7 +334,7 @@ public partial class BuildingManager : MonoBehaviour
     // =========================================================================
 
     public Building            GetBuilding(BuildingType type)     => _byType.TryGetValue(type, out var b) ? b : null;
-    public Building            GetBuildingById(string id)         => _byId.TryGetValue(id, out var b) ? b : null;
+    public Building            GetBuildingById(string id)         => id != null && _byId.TryGetValue(id, out var b) ? b : null;
     public List<Building>      GetAllBuildings()                  => _buildings;
     public bool                HasBuilding(BuildingType type)     => _byType.ContainsKey(type);
     public JobDefinitionSO     GetJobDefinition(JobType jobType)  => _jobByType.TryGetValue(jobType, out var d) ? d : null;
@@ -354,43 +361,37 @@ public partial class BuildingManager : MonoBehaviour
 
     private void HandleProductionComplete(Building building, ProductionTask task)
     {
-        var adventurer = AdventurerManager.Instance.GetById(task.assignedAdventurerId);
-
-        if (adventurer != null)
+        var worker = AdventurerManager.Instance.GetById(task.assignedAdventurerId);
+        var definition = GetJobDefinition(task.craftedByJobType);
+        var recipe = task.recipe;
+        if (recipe?.ProducesEquipment == true)
         {
-            _jobByType.TryGetValue(task.craftedByJobType, out var jobDef);
-            bool leveledUp = adventurer.AddJobExperience(task.craftedByJobType, 50, jobDef);
-            adventurer.AddExperience(20);
-
-            if (leveledUp)
-                OnWorkerJobLevelUp?.Invoke(adventurer, task.craftedByJobType,
-                    adventurer.GetJobInstance(task.craftedByJobType)?.currentLevel ?? 0);
+            int value = recipe.outputEquipment.GetGoldValue(task.rolledQuality);
+            task.LastCommission = EconomyManager.Instance.PayCommission(worker, task.craftedByJobType, value);
+            var item = new EquipmentInstance(recipe.outputEquipment, task.rolledQuality,
+                task.assignedAdventurerId, task.craftedByJobType);
+            GuildInventory.Instance.ReceiveCraftedEquipment(item);
+        }
+        else if (recipe?.outputResource != null)
+        {
+            float multiplier = worker?.GetJobInstance(task.craftedByJobType)?.GetOutputMultiplier(definition) ?? 1f;
+            int amount = Mathf.RoundToInt(recipe.outputResourceAmount * multiplier);
+            task.LastCommission = EconomyManager.Instance.PayCommission(worker, task.craftedByJobType,
+                amount * recipe.outputResource.baseMarketValue);
+            GuildInventory.Instance.AddResource(recipe.outputResource, amount);
         }
 
-        if (task.recipe != null)
+        if (worker != null)
         {
-            if (task.recipe.ProducesEquipment)
-            {
-                var item = new EquipmentInstance(task.recipe.outputEquipment, task.rolledQuality,
-                    task.assignedAdventurerId, task.craftedByJobType);
-                GuildInventory.Instance.ReceiveCraftedEquipment(item);
-            }
-            else if (task.recipe.outputResource != null)
-            {
-                int amount = task.recipe.outputResourceAmount;
-                if (adventurer != null)
-                {
-                    _jobByType.TryGetValue(task.craftedByJobType, out var jd);
-                    var ji = adventurer.GetJobInstance(task.craftedByJobType);
-                    if (ji != null && jd != null)
-                        amount = Mathf.RoundToInt(amount * ji.GetOutputMultiplier(jd));
-                }
-                GuildInventory.Instance.AddResource(task.recipe.outputResource, amount);
-            }
+            bool leveledUp = worker.AddJobExperience(task.craftedByJobType, 50, definition);
+            worker.AddExperience(20);
+            if (leveledUp)
+                OnWorkerJobLevelUp?.Invoke(worker, task.craftedByJobType,
+                    worker.GetJobInstance(task.craftedByJobType)?.currentLevel ?? 0);
         }
 
         OnProductionCompleted?.Invoke(building, task);
-        if (task.HasNextUnit && task.recipe != null && adventurer != null)
+        if (task.HasNextUnit && recipe != null && worker != null)
         {
             task.seriesUnit++;
             task.progress = 0f;

@@ -8,6 +8,7 @@ public partial class GuildWorkshopUI
     {
         public string Label;
         public Func<string> GetBlockedReason;
+        public Func<string> GetLabel;
         public Action Execute;
         public Func<bool> Resolve;
     }
@@ -166,13 +167,15 @@ public partial class GuildWorkshopUI
         foreach (var action in entry.Actions)
         {
             if (action.Resolve != null && !entry.IsPending) continue;
-            var button = ActionButton(row, action.Label, () => ExecuteJournalAction(entry, action));
+            var button = ActionButton(row, action.GetLabel?.Invoke() ?? action.Label, () => ExecuteJournalAction(entry, action));
+            button.name = action.Label;
             button.AddToClassList("journal-action");
             if (action.GetBlockedReason == null) continue;
             var status = Text(row, "", "journal-action-status");
             void RefreshAction()
             {
                 string reason = action.GetBlockedReason();
+                if (action.GetLabel != null) button.text = action.GetLabel();
                 button.SetEnabled(reason == null);
                 button.tooltip = reason;
                 status.text = reason;
@@ -207,14 +210,19 @@ public partial class GuildWorkshopUI
         {
             if (!StillExhausted()) return "Aventurier indisponible.";
             var tavern = buildings.GetBuilding(BuildingType.Tavern);
-            if (tavern?.IsActive != true) return "Taverne indisponible.";
-            return buildings.CanStartService(adventurer, tavern) ? null : "Aucune place à la taverne.";
+            return buildings.GetServiceBlockedReason(adventurer, tavern);
         }
 
         AddDecision($"{adventurer.adventurerName} est épuisé (fatigue 100 %). Son poste est libre.", StillExhausted,
             new JournalAction
             {
                 Label = "Envoyer à la taverne",
+                GetLabel = () =>
+                {
+                    var tavern = buildings.GetBuilding(BuildingType.Tavern);
+                    return tavern == null ? "Envoyer à la taverne"
+                        : $"Envoyer à la taverne · {buildings.GetServicePrice(adventurer, tavern, out _)} or";
+                },
                 GetBlockedReason = BlockedReason,
                 Resolve = () => buildings.StartService(adventurer, buildings.GetBuilding(BuildingType.Tavern))
             }, IgnoreDecision());

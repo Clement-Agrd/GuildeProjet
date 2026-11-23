@@ -172,3 +172,30 @@ Button.hero-detail { margin: 0; min-height: 26px; padding: 2px 6px; font-size: 1
 .recipe-highlight { border-color: #976021; background-color: #fbe1af; }
 #auto-sell, #auto-sell-full { margin-right: 18px; }
 #auto-sell-quality { max-width: 320px; margin-bottom: 7px; }
+
+.forge-columns { flex-direction: row; align-items: flex-start; }
+.forge-staff { width: 196px; min-width: 145px; max-width: 28%; flex-shrink: 0; margin-right: 14px; }
+.forge-staff .card { padding: 8px; }
+.forge-staff Button { white-space: normal; }
+.forge-catalogue { flex-grow: 1; flex-basis: 0; min-width: 0; }
+.forge-toolbar { margin-top: 9px; }
+.forge-toolbar .subheading { margin: 0 12px 0 0; }
+.forge-filter-icon { width: 38px; min-height: 36px; padding: 0; align-items: center; justify-content: center; }
+.forge-glyph { width: 26px; height: 26px; flex-shrink: 0; }
+Button.forge-choice-active { background-color: #d8a459; border-color: #75461e; -unity-font-style: bold; }
+.forge-worker-handle { padding: 7px; border-radius: 5px; background-color: #e7c68f; }
+.forge-worker-handle:hover { background-color: #eed7a6; }
+.forge-recipe { margin-bottom: 12px; }
+.forge-odds { background-color: #e9c88e; padding: 6px 9px; border-radius: 5px; margin-bottom: 8px; }
+.forge-odd { margin-right: 12px; font-size: 14px; -unity-font-style: bold; }
+.forge-recipe-details { align-items: stretch; margin-bottom: 6px; }
+.forge-worker-slot { flex-grow: 1; flex-basis: 180px; border-width: 1px; border-color: #c79f67; background-color: #ead1a0; border-radius: 6px; padding: 7px; margin: 0 8px 5px 0; }
+.forge-worker-slot.forge-worker-drop { background-color: #fbe4ad; border-color: #825221; }
+.forge-worker-slot .unity-base-popup-field__text { white-space: normal; }
+.forge-recipe-costs { flex-grow: 1; flex-basis: 160px; margin-bottom: 5px; }
+.forge-recipe-costs .subheading { margin: 1px 0 4px; }
+.forge-modes { margin-bottom: 4px; }
+.forge-order-layout { align-items: flex-start; }
+.forge-order-details { flex-grow: 1; flex-basis: 230px; margin-right: 10px; }
+.forge-order-actions { flex-shrink: 0; }
+.forge-order-actions Button { white-space: normal; }

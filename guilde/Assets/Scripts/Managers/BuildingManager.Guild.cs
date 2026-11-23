@@ -14,15 +14,17 @@ public partial class BuildingManager
     private readonly List<ScriptableObject> _generatedDefinitions = new();
     private readonly List<ServiceSession> _sessions = new();
     private readonly List<(Adventurer Worker, float Duration)> _workerActivity = new();
-    private readonly List<string> _missionOffers = new();
-    private const float PrestigiousMissionThreshold = 1.15f;
-    private float _discoveryProgress;
+    private readonly List<MissionOffer> _missionOffers = new();
+    private readonly Dictionary<string, float> _scoutProgress = new();
+    private const float PrestigiousMissionThreshold = 0.85f;
+    private float _requestProgress;
     private int _missionsFound;
 
     private sealed class ServiceSession
     {
         public Adventurer Adventurer;
         public BuildingType Type;
+        public string WorkerId;
         public float Progress;
         public bool RestReported;
         public bool MoraleReported;
@@ -30,7 +32,7 @@ public partial class BuildingManager
 
     public event Action<string> OnGuildActivity;
     public event Action<Adventurer, bool, bool> OnTavernRecovery;
-    public IReadOnlyList<string> MissionOffers => _missionOffers;
+    public IReadOnlyList<MissionOffer> MissionOffers => _missionOffers;
     public int RosterCapacity => 6 + 3 * (GetBuilding(BuildingType.Headquarters)?.currentLevel - 1 ?? 0);
     public int RosterOccupancy
     {
@@ -43,57 +45,36 @@ public partial class BuildingManager
         }
     }
     public bool CanHire => GetBuilding(BuildingType.Recruiter)?.IsActive == true && RosterOccupancy < RosterCapacity;
-    public float DiscoveryProgress => Mathf.Clamp01(_discoveryProgress);
-    public float MissionInterval
+    public float RequestProgress => Mathf.Clamp01(_requestProgress);
+    public int VillageRequestCapacity => GetBuilding(BuildingType.Headquarters)?.currentLevel ?? 0;
+    public int ScoutedMissionCapacity => VillageRequestCapacity * 2;
+    private float HeadquartersSpeed => 1f + 0.5f * Mathf.Max(0, VillageRequestCapacity - 1);
+    public float VillageRequestInterval => 30f / HeadquartersSpeed;
+
+    public float ScoutInterval(Adventurer scout)
+        => 30f / (HeadquartersSpeed * (1f + JobPerformance.Scouting(scout).SpeedBonus));
+
+    public float ScoutHoursRemaining(Adventurer scout)
     {
-        get
-        {
-            var hq = GetBuilding(BuildingType.Headquarters);
-            return hq == null
-                ? float.PositiveInfinity
-                : 30f / (1f + GetScoutBonuses(hq).Speed + 0.5f * (hq.currentLevel - 1));
-        }
+        _scoutProgress.TryGetValue(scout.id, out float progress);
+        return (1f - progress) * ScoutInterval(scout);
     }
 
-    public float MissionQualityBonus
-    {
-        get
-        {
-            var hq = GetBuilding(BuildingType.Headquarters);
-            return hq == null ? 0f : GetScoutBonuses(hq).Quality + 0.1f * (hq.currentLevel - 1);
-        }
-    }
+    public static float ScoutPrestigiousChance(Adventurer scout)
+        => Mathf.Clamp01(1f + JobPerformance.Scouting(scout).QualityBonus - PrestigiousMissionThreshold);
 
-    public float MissionPrestigiousChance => Mathf.Clamp01(1f + MissionQualityBonus - PrestigiousMissionThreshold);
-
-    private static (float Speed, float Quality) GetScoutBonuses(Building headquarters)
+    public int MissionCount(bool scouted)
     {
-        float speed = 0f;
-        float quality = 0f;
-        foreach (string workerId in headquarters.assignedAdventurerIds)
-        {
-            var scout = AdventurerManager.Instance.GetById(workerId);
-            if (scout == null) continue;
-            var bonus = JobPerformance.Scouting(scout);
-            speed += bonus.SpeedBonus;
-            quality += bonus.QualityBonus;
-        }
-        return (speed, quality);
-    }
-
-    public int MissionCapacity
-    {
-        get
-        {
-            var hq = GetBuilding(BuildingType.Headquarters);
-            return hq == null ? 0 : hq.currentLevel + 2 * hq.assignedAdventurerIds.Count;
-        }
+        int count = 0;
+        foreach (var offer in _missionOffers)
+            if (offer.IsScouted == scouted) count++;
+        return count;
     }
 
     private void ConfigureGuildBuildings()
     {
-        EnsureBuilding(BuildingType.Headquarters, JobType.Scout, "Quartier général", "Éclaireur", "Le quartier général trouve des missions. Les éclaireurs améliorent la capacité, la vitesse et la qualité de la recherche.");
-        EnsureBuilding(BuildingType.Recruiter, JobType.Recruiter, "Recruteur", "Recruteur", "Consultez les candidatures et engagez de nouveaux aventuriers.");
+        EnsureBuilding(BuildingType.Headquarters, JobType.Scout, "Quartier général", "Éclaireur", "Les villageois déposent leurs requêtes au quartier général. Les éclaireurs rapportent leurs propres découvertes.");
+        EnsureBuilding(BuildingType.Recruiter, JobType.Recruiter, "Recruteur", "Recruteur", "Consultez les candidatures spontanées et les aventuriers trouvés par vos recruteurs.");
         EnsureBuilding(BuildingType.Infirmary, JobType.Healer, "Infirmerie", "Soigneur", "Confiez les blessés aux soigneurs pour accélérer leur guérison.");
         EnsureBuilding(BuildingType.Tavern, JobType.Cook, "Taverne", "Tavernier", "Réduisez la fatigue et remontez le moral.");
         EnsureBuilding(BuildingType.Workshop, JobType.Craftsman, "Atelier", "Artisan", "Fabriquez des bracelets, des colliers et des bagues.");
@@ -178,25 +159,76 @@ public partial class BuildingManager
     public static bool HasService(BuildingType type)
         => type is BuildingType.Infirmary or BuildingType.Tavern or BuildingType.TrainingRoom;
 
-    public bool CanStartService(Adventurer a, Building b)
+    private Adventurer GetServiceWorker(Building building)
     {
-        if (a == null || b == null || !b.IsActive || !HasService(b.buildingType) || a.currentService.HasValue)
-            return false;
-        if (ServiceOccupancy(b.buildingType) >= b.currentLevel) return false;
-        return b.buildingType switch
+        Adventurer best = null;
+        int leastSessions = int.MaxValue;
+        foreach (string id in building.assignedAdventurerIds)
         {
-            BuildingType.Infirmary => a.currentStateType == AdventurerStateType.Injured,
-            BuildingType.Tavern => a.IsAvailable || a.currentStateType == AdventurerStateType.Resting,
-            _ => a.IsAvailable
-        };
+            var worker = AdventurerManager.Instance.GetById(id);
+            if (worker == null) continue;
+            int sessions = 0;
+            foreach (var session in _sessions)
+                if (session.WorkerId == id) sessions++;
+            if (sessions >= leastSessions) continue;
+            best = worker;
+            leastSessions = sessions;
+        }
+        return best;
     }
+
+    public int GetServicePrice(Adventurer a, Building b, out int commission)
+        => GetServicePrice(a, b, GetServiceWorker(b), out commission);
+
+    private static int GetServicePrice(Adventurer a, Building b, Adventurer worker, out int commission)
+    {
+        int basePrice = b.buildingType switch
+        {
+            BuildingType.Infirmary => Mathf.Max(1, Mathf.CeilToInt((1f - a.HealthFraction) * a.GetCombatStats().pointsDeVie / 10f)),
+            BuildingType.TrainingRoom => 8 + 2 * a.stats.level,
+            BuildingType.Tavern => 5,
+            _ => 0
+        };
+        commission = worker?.CalculateCommission(basePrice, b.definition.associatedJobType) ?? 0;
+        return basePrice + commission;
+    }
+
+    public string GetServiceBlockedReason(Adventurer a, Building b)
+    {
+        if (a == null || b == null || !b.IsActive || !HasService(b.buildingType))
+            return "Service indisponible.";
+        if (AdventurerManager.Instance.GetById(a.id) != a || a.currentService.HasValue)
+            return "Aventurier indisponible.";
+        if (ServiceOccupancy(b.buildingType) >= b.currentLevel) return "Toutes les places sont occupées.";
+
+        switch (b.buildingType)
+        {
+            case BuildingType.Infirmary when a.currentStateType != AdventurerStateType.Injured:
+                return "L’infirmerie accueille les blessés.";
+            case BuildingType.Tavern when !a.IsAvailable && a.currentStateType != AdventurerStateType.Resting:
+            case BuildingType.TrainingRoom when !a.IsAvailable:
+                return "Aventurier indisponible.";
+            case BuildingType.Tavern when a.stats.fatigue <= 0f && a.stats.moral >= 100f:
+                return "Cet aventurier est reposé et son moral est au maximum.";
+            case BuildingType.TrainingRoom when GetServiceWorker(b) == null:
+                return "Un entraîneur doit être en poste.";
+        }
+
+        return EconomyManager.Instance.CurrentGold >= GetServicePrice(a, b, out _) ? null : "Or insuffisant.";
+    }
+
+    public bool CanStartService(Adventurer a, Building b) => GetServiceBlockedReason(a, b) == null;
 
     public bool StartService(Adventurer a, Building b)
     {
-        if (!CanStartService(a, b) || AdventurerManager.Instance.GetById(a.id) != a) return false;
+        if (!CanStartService(a, b)) return false;
+        var worker = GetServiceWorker(b);
+        int price = GetServicePrice(a, b, worker, out int commission);
+        if (!EconomyManager.Instance.SpendGold(price)) return false;
         a.currentService = b.buildingType;
-        _sessions.Add(new ServiceSession { Adventurer = a, Type = b.buildingType });
-        OnGuildActivity?.Invoke($"{a.adventurerName} entre dans le service « {b.definition.buildingName} ».");
+        _sessions.Add(new ServiceSession { Adventurer = a, Type = b.buildingType, WorkerId = worker?.id });
+        string commissionNote = commission > 0 ? $" dont {commission} or de commission" : "";
+        OnGuildActivity?.Invoke($"{a.adventurerName} · {b.definition.buildingName} · {price} or réglés{commissionNote}.");
         return true;
     }
 
@@ -214,9 +246,9 @@ public partial class BuildingManager
         session.Adventurer.currentService = null;
     }
 
-    public void ArchiveMission(string offer)
+    public void ArchiveMission(MissionOffer offer)
     {
-        if (_missionOffers.Remove(offer)) OnGuildActivity?.Invoke($"Mission archivée · {offer}");
+        if (_missionOffers.Remove(offer)) OnGuildActivity?.Invoke($"Mission archivée · {offer.Title}");
     }
 
     private void ResetGuildServices()
@@ -225,7 +257,8 @@ public partial class BuildingManager
         _sessions.Clear();
         _workerActivity.Clear();
         _missionOffers.Clear();
-        _discoveryProgress = 0f;
+        _requestProgress = 0f;
+        _scoutProgress.Clear();
         _missionsFound = 0;
     }
 
@@ -244,15 +277,7 @@ public partial class BuildingManager
                     float remaining = (1f - task.progress) * task.totalDuration / speed;
                     TrackWorker(task.assignedAdventurerId, Mathf.Min(deltaTime, remaining));
                 }
-                continue;
             }
-
-            float workDuration = b.buildingType == BuildingType.Headquarters
-                ? Mathf.Min(deltaTime, Mathf.Max(0f, (MissionCapacity - _missionOffers.Count - _discoveryProgress) * MissionInterval))
-                : HasService(b.buildingType) && ServiceOccupancy(b.buildingType) > 0 ? deltaTime : 0f;
-            if (workDuration <= 0f) continue;
-            foreach (string id in b.assignedAdventurerIds)
-                TrackWorker(id, workDuration);
         }
     }
 
@@ -267,14 +292,6 @@ public partial class BuildingManager
         foreach (var activity in _workerActivity)
             activity.Worker.AddWorkFatigue(activity.Duration);
         _workerActivity.Clear();
-    }
-
-    // Un achat, une vente ou une embauche est traité par le premier employé en poste.
-    internal void RecordTransactionWork(BuildingType type)
-    {
-        var b = GetBuilding(type);
-        if (b == null || !b.IsActive || b.assignedAdventurerIds.Count == 0) return;
-        AdventurerManager.Instance.GetById(b.assignedAdventurerIds[0])?.AddWorkFatigue(1f);
     }
 
     private void TickGuildServices(float deltaTime)
@@ -294,31 +311,38 @@ public partial class BuildingManager
             }
 
             if (!b.IsActive) continue;
-            int staff = b.assignedAdventurerIds.Count;
-            float speed = 1f + 0.25f * (b.currentLevel - 1);
-            foreach (string workerId in b.assignedAdventurerIds)
+            var worker = session.WorkerId != null && b.HasWorker(session.WorkerId)
+                ? AdventurerManager.Instance.GetById(session.WorkerId) : null;
+            if (session.Type == BuildingType.TrainingRoom && worker == null)
             {
-                var worker = AdventurerManager.Instance.GetById(workerId);
+                worker = GetServiceWorker(b);
                 if (worker == null) continue;
-                speed += session.Type switch
-                {
-                    BuildingType.Infirmary => JobPerformance.HealingBonus(worker),
-                    BuildingType.Tavern => JobPerformance.TavernRecoveryBonus(worker),
-                    BuildingType.TrainingRoom => JobPerformance.TrainingBonus(worker),
-                    _ => 0f
-                };
+                session.WorkerId = worker.id;
             }
+            float buildingSpeed = 1f + 0.25f * (b.currentLevel - 1);
+            float bonus = worker == null ? 0f : session.Type switch
+            {
+                BuildingType.Infirmary => JobPerformance.HealingBonus(worker),
+                BuildingType.Tavern => JobPerformance.TavernRecoveryBonus(worker),
+                _ => JobPerformance.TrainingBonus(worker)
+            };
+            float speed = buildingSpeed * (1f + bonus);
+            if (worker != null) TrackWorker(worker.id, deltaTime);
             float rate = deltaTime * speed;
             switch (session.Type)
             {
                 case BuildingType.Infirmary:
                     a.Tick(rate);
-                    if (a.currentStateType != AdventurerStateType.Injured) StopService(a);
+                    if (a.currentStateType != AdventurerStateType.Injured)
+                    {
+                        AwardServiceExperience(worker, JobType.Healer);
+                        StopService(a);
+                    }
                     break;
                 case BuildingType.Tavern:
                     bool wasTired = a.stats.fatigue > 0f;
                     bool hadLowerMorale = a.stats.moral < 100f;
-                    a.stats.fatigue -= 1.8f * rate * a.RestRecoveryPerSecond;
+                    a.stats.fatigue -= 1.8f * rate * a.RestRecoveryPerHour;
                     a.stats.moral += 4f * rate;
                     a.stats.ClampSecondaryStats();
                     bool rested = !session.RestReported && wasTired && a.stats.fatigue <= 0f;
@@ -329,33 +353,97 @@ public partial class BuildingManager
                         a.TransitionToState(new IdleState(a));
                     if (a.stats.fatigue <= 0f && a.stats.moral >= 100f)
                     {
+                        AwardServiceExperience(worker, JobType.Cook);
                         EndService(session);
                         if (!rested && !moraleRestored) OnGuildActivity?.Invoke($"{a.adventurerName} quitte la taverne.");
                     }
                     if (rested || moraleRestored) OnTavernRecovery?.Invoke(a, rested, moraleRestored);
                     break;
                 case BuildingType.TrainingRoom:
-                    if (staff == 0) break;
                     session.Progress += rate;
                     if (session.Progress < 8f) break;
                     a.AddExperience(40);
+                    AwardServiceExperience(worker, JobType.Trainer);
                     StopService(a);
                     break;
             }
         }
 
-        var hq = GetBuilding(BuildingType.Headquarters);
-        if (hq == null || !hq.IsActive || _missionOffers.Count >= MissionCapacity) return;
-        _discoveryProgress += deltaTime / MissionInterval;
-        while (_discoveryProgress >= 1f && _missionOffers.Count < MissionCapacity)
+        TickMissionOffers(deltaTime);
+    }
+
+    private void AwardServiceExperience(Adventurer worker, JobType job)
+        => worker?.AddJobExperience(job, 25, GetJobDefinition(job));
+
+    private void TickMissionOffers(float hours)
+    {
+        var headquarters = GetBuilding(BuildingType.Headquarters);
+        if (headquarters?.IsActive != true) return;
+
+        if (MissionCount(false) < VillageRequestCapacity)
         {
-            _discoveryProgress -= 1f;
-            float qualityScore = UnityEngine.Random.value + MissionQualityBonus;
-            string quality = qualityScore >= PrestigiousMissionThreshold ? "Prestigieuse" : qualityScore >= 0.8f ? "Remarquable" : "Ordinaire";
-            string offer = $"Reconnaissance des environs · contrat {++_missionsFound} · {quality}";
-            _missionOffers.Add(offer);
-            if (_missionOffers.Count >= MissionCapacity) _discoveryProgress = 0f;
-            OnGuildActivity?.Invoke($"Nouvelle mission disponible · {offer}");
+            _requestProgress += hours / VillageRequestInterval;
+            while (_requestProgress >= 1f && MissionCount(false) < VillageRequestCapacity)
+            {
+                _requestProgress -= 1f;
+                AddMissionOffer(null);
+            }
+            if (MissionCount(false) >= VillageRequestCapacity) _requestProgress = 0f;
         }
+
+        for (int i = headquarters.assignedAdventurerIds.Count - 1; i >= 0 && MissionCount(true) < ScoutedMissionCapacity; i--)
+        {
+            var scout = AdventurerManager.Instance.GetById(headquarters.assignedAdventurerIds[i]);
+            if (scout == null) continue;
+            _scoutProgress.TryGetValue(scout.id, out float progress);
+            progress += hours / ScoutInterval(scout);
+            while (progress >= 1f && MissionCount(true) < ScoutedMissionCapacity)
+            {
+                progress -= 1f;
+                AddMissionOffer(scout);
+            }
+            _scoutProgress[scout.id] = MissionCount(true) >= ScoutedMissionCapacity ? 0f : Mathf.Clamp01(progress);
+        }
+    }
+
+    private void AddMissionOffer(Adventurer scout)
+    {
+        float score = UnityEngine.Random.value + (scout == null
+            ? 0.1f * (VillageRequestCapacity - 1)
+            : JobPerformance.Scouting(scout).QualityBonus);
+        int level = score >= PrestigiousMissionThreshold ? 3 : score >= 0.5f ? 2 : 1;
+        string title = scout == null ? "Requête des villageois" : level switch
+        {
+            3 => "Donjon découvert",
+            2 => "Monstres repérés",
+            _ => "Traces à examiner"
+        };
+        var offer = new MissionOffer($"{title} · contrat {++_missionsFound}", level, scout?.adventurerName);
+        _missionOffers.Add(offer);
+        if (scout == null)
+        {
+            OnGuildActivity?.Invoke($"Requête déposée · {offer.Title} · niv. {level}");
+            return;
+        }
+
+        int commission = EconomyManager.Instance.PayCommission(scout, JobType.Scout, 40 * level);
+        scout.AddJobExperience(JobType.Scout, 25, GetJobDefinition(JobType.Scout));
+        TrackWorker(scout.id, 1f);
+        OnGuildActivity?.Invoke($"{scout.adventurerName} · {offer.Title} · niv. {level} · {commission} or de commission.");
+    }
+}
+
+public sealed class MissionOffer
+{
+    public string Title { get; }
+    public int Level { get; }
+    public string ScoutName { get; }
+    public bool IsScouted => ScoutName != null;
+
+    public MissionOffer(string title, int level, string scoutName)
+    {
+        Title = title;
+        Level = level;
+        ScoutName = scoutName;
     }
 }

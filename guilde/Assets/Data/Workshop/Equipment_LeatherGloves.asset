@@ -1,0 +1,29 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9319d9d6ba4149e591e5927d95ec80fb, type: 3}
+  m_Name: Equipment_LeatherGloves
+  m_EditorClassIdentifier: Assembly-CSharp::EquipmentSO
+  itemName: Gants de cuir
+  description:
+  icon: {fileID: 0}
+  slot: 4
+  weaponType: 0
+  requiredClassId:
+  mainStatType: 17
+  baseMainStatValue: 6
+  possibleSubStats: 03000000010000000500000009000000
+  baseSubStatValue: 10
+  baseDurability: 100
+  baseGoldValue: 28
+  rareMultiplier: 1.5
+  epicMultiplier: 2.5
+  legendaryMultiplier: 4

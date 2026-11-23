@@ -49,6 +49,7 @@ public partial class GuildWorkshopUI
         AddProfileField(identity, "Classe", adventurer.adventurerClass?.className ?? "—");
         AddProfileField(identity, "Niveau", adventurer.stats.level.ToString());
         AddProfileField(identity, "Âge", $"{adventurer.age} ans");
+        AddProfileField(identity, "Salaire", $"{adventurer.CalculateSalary()} or/mois");
 
         var state = Text(parent, StateLabel(adventurer), "profile-state");
         _liveUpdates.Add(() => state.text = StateLabel(adventurer));
@@ -180,7 +181,7 @@ public partial class GuildWorkshopUI
                 : !adventurer.IsAvailable ? "Aventurier indisponible"
                 : !building.IsActive ? "Bâtiment indisponible"
                 : replace ? "Choisir le titulaire à remplacer"
-                : $"{building.definition.buildingName} · {adventurer.CalculateSalary(buildings.GetJobDefinition(job.jobType))} or";
+                : building.definition.buildingName;
         }
     }
 
@@ -188,6 +189,7 @@ public partial class GuildWorkshopUI
     {
         var preview = ProfileGroup(parent, "job-performance");
         preview.name = "job-performance-" + job;
+        Text(preview, $"Commission · {worker.GetCommissionRate(job):P1}", "profile-secondary");
         void Speed(JobEffectType effectType, string label)
         {
             var effect = JobPerformance.GetEffect(worker, effectType);
@@ -204,21 +206,27 @@ public partial class GuildWorkshopUI
             case JobType.Trainer: Speed(JobEffectType.TrainingSpeed, "Vitesse des séances"); break;
             case JobType.Cook: Speed(JobEffectType.TavernRecovery, "Vitesse de récupération"); break;
             case JobType.Recruiter:
-                Speed(JobEffectType.RecruitmentSpeed, "Vitesse de recrutement");
+                Speed(JobEffectType.RecruitmentSpeed, "Vitesse de prospection");
                 var trained = JobPerformance.GetEffect(worker, JobEffectType.TrainedRecruitChance);
-                float probability = Mathf.Min(AdventurerManager.MaxTrainedRecruitChance, AdventurerManager.BaseTrainedRecruitChance + trained.Total);
-                AddJobMetric(preview, worker, job, "Recrue expérimentée", $"{probability:P1}", trained, "pts",
+                float probability = AdventurerManager.TrainedRecruitChance(worker);
+                AddJobMetric(preview, worker, job, "Recrue trouvée de niveau 2–3", $"{probability:P1}", trained, "pts",
                     $"Probabilité de base · {AdventurerManager.BaseTrainedRecruitChance:P0}");
                 break;
             case JobType.Scout:
                 Speed(JobEffectType.ScoutingSpeed, "Vitesse de recherche");
                 var quality = JobPerformance.GetEffect(worker, JobEffectType.ScoutingQuality);
-                AddJobMetric(preview, worker, job, "Qualité des contrats", $"+{quality.Total * 100f:0.#} pts", quality, "pts",
-                    "Un meilleur score favorise les contrats remarquables ou prestigieux.");
+                AddJobMetric(preview, worker, job, "Mission de niveau 3", $"{BuildingManager.ScoutPrestigiousChance(worker):P1}", quality, "pts",
+                    "Chance de base · 15 % sur les découvertes.");
                 break;
         }
 
-        string fatigueUnit = job == JobType.Merchant ? "par transaction auto" : job == JobType.Recruiter ? "par recrutement" : "par sec. de travail";
+        string fatigueUnit = job switch
+        {
+            JobType.Merchant => "par transaction auto",
+            JobType.Recruiter => "par candidat trouvé",
+            JobType.Scout => "par mission trouvée",
+            _ => "par heure de travail"
+        };
         var fatigue = JobPerformance.GetEffect(worker, JobEffectType.WorkFatigue);
         AddJobMetric(preview, worker, job, "Fatigue", $"+{fatigue.Total:0.##} {fatigueUnit}", fatigue, "",
             $"Fatigue de base · {fatigue.BaseValue:0.##} {fatigueUnit}");
@@ -248,8 +256,8 @@ public partial class GuildWorkshopUI
 
         if (buildingSpeed > 0f)
         {
-            float seconds = Mathf.Max(0.1f, recipe.GetActualDuration(duration.Total)) / buildingSpeed;
-            Text(preview, $"{recipe.recipeName} · {seconds:0.##} s par pièce", "profile-secondary");
+            float hours = Mathf.Max(0.1f, recipe.GetActualDuration(duration.Total)) / buildingSpeed;
+            Text(preview, $"{recipe.recipeName} · {hours:0.##} h par pièce", "profile-secondary");
         }
     }
 
@@ -264,8 +272,6 @@ public partial class GuildWorkshopUI
             => unit.Length == 0 ? $"{amount:+0.##;-0.##;0}" : $"{amount * 100f:+0.##;-0.##;0} {unit}";
 
         var details = new System.Text.StringBuilder(label).Append(" · ").AppendLine(value).AppendLine(context);
-        if (effect.BaseValue != 0f && unit.Length != 0)
-            details.Append("Poste · ").AppendLine(Contribution(effect.BaseValue));
         string stat = GuildEquipmentPanel.StatLabel((StatType)effect.Stat);
         details.Append(stat).Append(' ').Append(effect.StatValue).Append(" · ").Append(Contribution(effect.StatBonus));
         if (effect.RaceBonus != 0f)
@@ -345,8 +351,7 @@ public partial class GuildWorkshopUI
         var panel = ProfileGroup(_replacementOverlay, "modal");
         panel.AddToClassList("panel");
         Text(panel, $"Remplacer au poste · {building.definition.buildingName}", "hero-title");
-        int wage = incoming.CalculateSalary(buildings.GetJobDefinition(building.definition.associatedJobType));
-        Text(panel, $"{incoming.adventurerName} prendra le poste pour {wage} or. Le titulaire choisi redeviendra disponible et sa fabrication éventuelle sera mise en pause.", "card-meta");
+        Text(panel, $"{incoming.adventurerName} prendra le poste. Le titulaire choisi redeviendra disponible et sa fabrication éventuelle sera mise en pause.", "card-meta");
         RenderJobPerformance(panel, incoming, building.definition.associatedJobType, building);
 
         foreach (string id in building.assignedAdventurerIds)

@@ -26,6 +26,22 @@ public class AdventurerStats
 
     public AdventurerStats() { }
 
+    public static AdventurerStats RollStartingStats()
+    {
+        int Roll() => UnityEngine.Random.Range(7, 14);
+        return new AdventurerStats
+        {
+            vitalite = Roll(),
+            resistance = Roll(),
+            force = Roll(),
+            intelligence = Roll(),
+            charisme = Roll(),
+            sagesse = Roll(),
+            agilite = Roll(),
+            chance = Roll()
+        };
+    }
+
     public AdventurerStats(AdventurerStats src)
     {
         vitalite     = src.vitalite;

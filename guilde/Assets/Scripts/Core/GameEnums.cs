@@ -4,6 +4,7 @@ public enum Race                { Human, Elf, Dwarf, Orc, Goblin, Goliath, Gnome
 public enum WeaponType          { Sword, Axe, Mace, Bow, Staff, Grimoire, Dagger }
 public enum EquipmentSlot       { MainWeapon, OffHand, Armor, Helmet, Gloves, Boots, Accessory, Bracelet, Necklace, Ring }
 public enum EquipmentQuality    { Normal, Rare, Epic, Legendary }
+public enum ForgeTechnique      { Standard, Refined, Masterwork }
 public enum BuildingState       { Active, Upgrading, Damaged }
 public enum MissionState        { Preparing, InProgress, Returning, Completed, Failed }
 public enum MissionType         { Harvest, Hunt, Escort, Exploration }

@@ -25,6 +25,14 @@ public static class GuildWorkshopSetup
         var iron = Asset<ResourceSO>("Resource_Iron", r => { r.resourceName = "Fer"; r.baseMarketValue = 9; });
         var wood = Asset<ResourceSO>("Resource_Wood", r => { r.resourceName = "Bois"; r.baseMarketValue = 4; });
         var leather = Asset<ResourceSO>("Resource_Leather", r => { r.resourceName = "Cuir"; r.baseMarketValue = 6; });
+        var silver = Asset<ResourceSO>("Resource_Silver", r =>
+        {
+            r.resourceName = "Argent"; r.resourceType = ResourceType.Rare; r.baseMarketValue = 18; r.maxStackSize = 99;
+        });
+        var mithral = Asset<ResourceSO>("Resource_Mithral", r =>
+        {
+            r.resourceName = "Mithral"; r.resourceType = ResourceType.Rare; r.baseMarketValue = 28; r.maxStackSize = 99;
+        });
         var hardworking = Asset<TraitSO>("Trait_Hardworking", t =>
         {
             t.traitName = "Travailleur"; t.polarity = TraitPolarity.Positive;
@@ -44,26 +52,10 @@ public static class GuildWorkshopSetup
             t.effects.Add(new TraitEffect { effectType = TraitEffectType.Salary_Multiplier, value = 1.15f });
             t.effects.Add(new TraitEffect { effectType = TraitEffectType.Commission_Multiplier, value = 1.2f });
         });
-        var warrior = Asset<AdventurerClassSO>("Class_Warrior", c =>
-        {
-            c.className = "Guerrier"; c.baseSalary = 10;
-            c.baseStats.force = 16; c.baseStats.vitalite = 14; c.baseStats.resistance = 13;
-            c.masteredWeapons = new() { WeaponType.Sword, WeaponType.Axe, WeaponType.Mace };
-            c.jobAffinities.Add(new ClassJobAffinity { jobType = JobType.Blacksmith, performanceBonus = .25f });
-        });
-        var mage = Asset<AdventurerClassSO>("Class_Mage", c =>
-        {
-            c.className = "Mage"; c.baseSalary = 12;
-            c.baseStats.intelligence = 17; c.baseStats.sagesse = 14; c.baseStats.charisme = 12;
-            c.masteredWeapons = new() { WeaponType.Staff, WeaponType.Grimoire };
-            c.jobAffinities.Add(new ClassJobAffinity { jobType = JobType.Blacksmith, performanceBonus = .1f });
-        });
         Asset<AdventurerRaceSO>("Race_Human", r => { r.raceName = "Humain"; r.raceType = Race.Human; });
         Asset<AdventurerRaceSO>("Race_Dwarf", r =>
         {
             r.raceName = "Nain des montagnes"; r.raceType = Race.Dwarf;
-            r.statModifiers.Add(new PrimaryStatModifier { stat = PrimaryStat.Vitalite, value = 3 });
-            r.statModifiers.Add(new PrimaryStatModifier { stat = PrimaryStat.Resistance, value = 2 });
             r.jobEffects.Add(new RacialJobEffect { effect = JobEffectType.ForgeDurationReduction, bonus = .10f });
             r.jobEffects.Add(new RacialJobEffect { effect = JobEffectType.TrainingSpeed, bonus = .08f });
         });
@@ -105,12 +97,25 @@ public static class GuildWorkshopSetup
         var sword = Equipment("Equipment_IronSword", "Épée de fer", EquipmentSlot.MainWeapon, WeaponType.Sword, StatType.AttaquePhysique, 24, 65);
         var dagger = Equipment("Equipment_IronDagger", "Dague de fer", EquipmentSlot.MainWeapon, WeaponType.Dagger, StatType.AttaquePhysique, 14, 32);
         var armor = Equipment("Equipment_ReinforcedArmor", "Armure renforcée", EquipmentSlot.Armor, WeaponType.Sword, StatType.DefensePhysique, 28, 90);
+        var helmet = Equipment("Equipment_IronHelmet", "Casque de fer", EquipmentSlot.Helmet, WeaponType.Sword, StatType.DefensePhysique, 15, 54);
+        var gloves = Equipment("Equipment_LeatherGloves", "Gants de cuir", EquipmentSlot.Gloves, WeaponType.Sword, StatType.Precision, 6, 28);
+        var boots = Equipment("Equipment_ReinforcedBoots", "Bottes renforcées", EquipmentSlot.Boots, WeaponType.Sword, StatType.Esquive, 7, 42);
         var recipes = new List<CraftRecipeSO>
         {
             Recipe("Recipe_IronSword", "Épée de fer", sword, 7f, Cost(iron, 2), Cost(wood, 1)),
             Recipe("Recipe_IronDagger", "Dague de fer", dagger, 5f, Cost(iron, 1), Cost(wood, 1)),
-            Recipe("Recipe_ReinforcedArmor", "Armure renforcée", armor, 10f, Cost(iron, 3), Cost(leather, 2))
+            Recipe("Recipe_ReinforcedArmor", "Armure renforcée", armor, 10f, Cost(iron, 3), Cost(leather, 2)),
+            Recipe("Recipe_IronHelmet", "Casque de fer", helmet, 6f, Cost(iron, 2), Cost(leather, 1)),
+            Recipe("Recipe_LeatherGloves", "Gants de cuir", gloves, 4f, Cost(iron, 1), Cost(leather, 2)),
+            Recipe("Recipe_ReinforcedBoots", "Bottes renforcées", boots, 5f, Cost(iron, 1), Cost(leather, 2))
         };
+        foreach (var recipe in recipes)
+        {
+            if (recipe.refinedMaterial != null && recipe.masterworkMaterial != null) continue;
+            if (recipe.refinedMaterial == null) recipe.refinedMaterial = silver;
+            if (recipe.masterworkMaterial == null) recipe.masterworkMaterial = mithral;
+            EditorUtility.SetDirty(recipe);
+        }
         AssetDatabase.SaveAssets();
         // Réouvrir préserve les réglages manuels d'une scène déjà créée.
         if (sceneExists)
@@ -128,12 +133,12 @@ public static class GuildWorkshopSetup
         var equipment = Add<EquipmentManager>(managers.transform, "Equipment");
         SetRef(equipment, "inventory", inventory); SetRef(equipment, "adventurers", adventurers);
         SetRef(equipment, "buildings", buildings); SetRef(equipment, "economy", economy);
-        SetArray(inventory, "allResources", iron, wood, leather);
-        SetArray(inventory, "allEquipments", sword, dagger, armor);
+        SetArray(inventory, "allResources", iron, wood, leather, silver, mithral);
+        SetArray(inventory, "allEquipments", sword, dagger, armor, helmet, gloves, boots);
         SetArray(buildings, "buildingDefinitions", forge, market);
         SetArray(buildings, "jobDefinitions", jobs.ToArray());
         SetArray(buildings, "allRecipes", recipes.ToArray());
-        SetArray(adventurers, "allClasses", warrior, mage);
+        RestoreArray<AdventurerClassSO>(adventurers, "allClasses");
         RestoreArray<AdventurerRaceSO>(adventurers, "allRaces");
         SetArray(adventurers, "allTraits", hardworking, gifted, greedy);
         SetRef(clock, "economy", economy); SetRef(clock, "buildings", buildings); SetRef(clock, "adventurers", adventurers);

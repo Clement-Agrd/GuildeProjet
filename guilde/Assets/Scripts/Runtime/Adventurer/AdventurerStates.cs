@@ -67,7 +67,7 @@ public class RestingState : AdventurerState
 
     public override void Tick(float deltaTime)
     {
-        Owner.stats.fatigue -= Owner.RestRecoveryPerSecond * deltaTime;
+        Owner.stats.fatigue -= Owner.RestRecoveryPerHour * deltaTime;
         Owner.stats.ClampSecondaryStats();
 
         if (Owner.stats.fatigue <= 10f)

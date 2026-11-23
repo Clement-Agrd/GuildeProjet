@@ -1,4 +1,5 @@
-﻿using System;
+using System;
+using System.Collections.Generic;
 using UnityEngine;
 
 [Serializable]
@@ -9,8 +10,12 @@ public class ProductionTask
     public string recipeId;
     public string assignedAdventurerId;
     public JobType craftedByJobType;
+    public ForgeTechnique forgeTechnique;
 
     [NonSerialized] public CraftRecipeSO recipe;
+    [NonSerialized] private List<ResourceCost> _inputResources;
+
+    public List<ResourceCost> InputResources => _inputResources ??= recipe?.GetInputs(forgeTechnique);
 
     // ─── Progression ──────────────────────────────────────────────────────────
     public float progress;
@@ -20,6 +25,7 @@ public class ProductionTask
     public bool awaitingInputs;
     public bool stopAfterCurrentUnit;
     internal string ComponentBlockReason { get; set; }
+    public int LastCommission { get; internal set; }
 
     public bool IsSeries => seriesQuantity > 1;
     public bool HasNextUnit => !stopAfterCurrentUnit && seriesUnit < seriesQuantity;
@@ -35,13 +41,14 @@ public class ProductionTask
     public ProductionTask() { }
 
     public ProductionTask(CraftRecipeSO recipe, string adventurerId,
-        float duration, float qualityBonus)
+        float duration, float qualityBonus, ForgeTechnique technique = ForgeTechnique.Standard)
     {
         taskId               = Guid.NewGuid().ToString();
         this.recipe          = recipe;
         recipeId             = recipe.name;
         assignedAdventurerId = adventurerId;
-        craftedByJobType      = recipe.requiredJob;
+        craftedByJobType     = recipe.requiredJob;
+        forgeTechnique       = technique;
         BeginUnit(duration, qualityBonus);
     }
 
@@ -49,7 +56,7 @@ public class ProductionTask
     {
         totalDuration = Mathf.Max(0.1f, duration);
         progress = 0f;
-        rolledQuality = recipe.RollQuality(qualityBonus);
+        rolledQuality = recipe.RollQuality(qualityBonus, forgeTechnique);
         awaitingInputs = false;
     }
 
@@ -62,5 +69,9 @@ public class ProductionTask
         return false;
     }
 
-    public void OnAfterLoad(CraftRecipeSO def) => recipe = def;
+    public void OnAfterLoad(CraftRecipeSO def)
+    {
+        recipe = def;
+        _inputResources = null;
+    }
 }

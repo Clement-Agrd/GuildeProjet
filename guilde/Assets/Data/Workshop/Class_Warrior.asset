@@ -13,23 +13,15 @@ MonoBehaviour:
   m_Name: Class_Warrior
   m_EditorClassIdentifier: Assembly-CSharp::AdventurerClassSO
   className: Guerrier
-  description: 
+  description:
   icon: {fileID: 0}
-  baseStats:
-    vitalite: 14
-    resistance: 13
-    force: 16
-    intelligence: 10
-    charisme: 10
-    sagesse: 10
-    agilite: 10
-    chance: 10
-    moral: 70
-    fatigue: 0
-    loyaute: 50
-    level: 1
-    experience: 0
-    experienceToNextLevel: 100
+  startingStatModifiers:
+  - stat: 2
+    value: 2
+  - stat: 0
+    value: 1
+  - stat: 3
+    value: -1
   masteredWeapons: 000000000100000002000000
   classPassives: []
   jobAffinities:

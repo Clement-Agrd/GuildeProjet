@@ -16,11 +16,7 @@ MonoBehaviour:
   description: 
   raceType: 2
   icon: {fileID: 0}
-  statModifiers:
-  - stat: 0
-    value: 3
-  - stat: 1
-    value: 2
+  statModifiers: []
   jobEffects:
   - effect: 0
     bonus: 0.10

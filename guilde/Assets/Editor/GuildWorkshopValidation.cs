@@ -58,9 +58,8 @@ public static class GuildWorkshopValidation
             Check(roster.HireAdventurer(a.id) && economy.CurrentGold == 500 - offer.hiringBonus, "Recrutement : prime débitée");
             Check(!roster.HireAdventurer(a.id), "Une candidature ne peut être embauchée deux fois");
             int beforeAssignment = economy.CurrentGold;
-            int wage = a.CalculateSalary(buildings.GetJobDefinition(JobType.Blacksmith));
             Check(buildings.AssignAdventurer(a, BuildingType.Forge), "Affectation à la Forge");
-            Check(economy.CurrentGold == beforeAssignment - wage, "Salaire annoncé payé exactement à la prise de poste");
+            Check(economy.CurrentGold == beforeAssignment, "La prise de poste ne déclenche aucun salaire");
             Check(!buildings.AssignAdventurer(a, BuildingType.Forge), "Affectation doublée refusée");
             var forge = buildings.GetBuilding(BuildingType.Forge);
             var recipe = buildings.GetRecipesForJob(JobType.Blacksmith)[0];
@@ -81,10 +80,10 @@ public static class GuildWorkshopValidation
             clock.Advance(30f);
             Check(task.progress == beforePause && clock.ElapsedGameTime == beforeTime, "Pause : production et temps immobiles");
             clock.SetSpeed(GameSpeed.Fast); clock.Advance(.5f);
-            Check(Math.Abs(clock.ElapsedGameTime - beforeTime - 1f) < .001f && task.progress > beforePause && a.stats.fatigue > 15f, "Vitesse x2 : 0,5 seconde réelle donne 1 seconde de jeu");
+            Check(Math.Abs(clock.ElapsedGameTime - beforeTime - 1f) < .001f && task.progress > beforePause && a.stats.fatigue > 15f, "Vitesse x2 : 0,5 seconde réelle donne 1 heure de jeu");
             beforeTime = clock.ElapsedGameTime;
             clock.SetSpeed(GameSpeed.VeryFast); clock.Advance(.5f);
-            Check(Math.Abs(clock.ElapsedGameTime - beforeTime - 1.5f) < .001f, "Vitesse x3 : 0,5 seconde réelle donne 1,5 seconde de jeu");
+            Check(Math.Abs(clock.ElapsedGameTime - beforeTime - 1.5f) < .001f, "Vitesse x3 : 0,5 seconde réelle donne 1,5 heure de jeu");
             clock.TogglePause();
             Check(clock.CurrentSpeed == GameSpeed.Paused, "Bascule pause depuis la vitesse x3");
             clock.TogglePause();
@@ -109,8 +108,11 @@ public static class GuildWorkshopValidation
             beforeTime = clock.ElapsedGameTime;
             clock.Advance(.1f);
             Check(Math.Abs(clock.ElapsedGameTime - beforeTime - .3f) < .001f, "La reprise ne rattrape pas les pas rejetés par la pause automatique");
+            int craftCost = a.CalculateCommission(recipe.outputEquipment.GetGoldValue(task.rolledQuality), JobType.Blacksmith);
+            int beforeCraft = economy.CurrentGold;
             buildings.Tick(task.totalDuration);
-            Check(forge.activeTasks.Count == 0 && inventory.GetAllEquipment().Count == 1, "Fin de fabrication : équipement ajouté une fois");
+            Check(forge.activeTasks.Count == 0 && inventory.GetAllEquipment().Count == 1
+                && economy.CurrentGold == beforeCraft - craftCost, "La pièce terminée débite sa commission une fois");
             float fatigueAfterCraft = a.stats.fatigue;
             clock.Advance(1f);
             Check(a.stats.fatigue == fatigueAfterCraft && forge.HasWorker(a.id),
@@ -119,7 +121,8 @@ public static class GuildWorkshopValidation
             Check(item.craftedByAdventurerId == a.id && item.craftedByJobType == JobType.Blacksmith, "Fabricant et métier de fabrication conservés");
             Check(a.stats.experience > 0 && a.GetJobInstance(JobType.Blacksmith).currentExperience > 0, "XP générale et XP métier attribuées");
             int goldBeforeSale = economy.CurrentGold;
-            int expectedRevenue = economy.GetEquipmentSellPrice(item);
+            int expectedRevenue = item.definition.GetGoldValue(item.quality);
+            Check(economy.GetEquipmentSellPrice(item) == expectedRevenue, "Aucune commission de fabrication à la revente sans marchand");
             Check(economy.SellEquipment(item.equipmentId) && economy.CurrentGold == goldBeforeSale + expectedRevenue
                 && inventory.GetAllEquipment().Count == 0, "Vente : équipement retiré et revenu net commission crédité");
             Check(!economy.SellEquipment(item.equipmentId), "Une pièce vendue ne peut être vendue deux fois");
@@ -159,12 +162,16 @@ public static class GuildWorkshopValidation
             Check(roster.HireAdventurer(trainer.id) && roster.HireAdventurer(trainee.id) &&
                 roster.HireAdventurer(scout.id), "Recrutement des aventuriers des services");
             var training = buildings.GetBuilding(BuildingType.TrainingRoom);
-            Check(buildings.StartService(trainee, training) && !buildings.AssignAdventurer(trainee, BuildingType.TrainingRoom)
-                && !buildings.StartService(scout, training), "Entraînement : place distincte, capacité et affectation unique");
-            buildings.Tick(9f);
-            Check(trainee.stats.experience == 0, "Séance suspendue en l’absence d’un entraîneur");
+            int noTrainerGold = economy.CurrentGold;
+            Check(!buildings.StartService(trainee, training) && economy.CurrentGold == noTrainerGold,
+                "Sans entraîneur, l’entraînement est refusé sans dépense");
             Check(buildings.AssignAdventurer(trainer, BuildingType.TrainingRoom) && !buildings.StartService(trainer, training),
                 "L’entraîneur occupe un poste distinct de la place du stagiaire");
+            int trainingPrice = buildings.GetServicePrice(trainee, training, out int trainerCommission);
+            int beforeTraining = economy.CurrentGold;
+            Check(buildings.StartService(trainee, training) && !buildings.AssignAdventurer(trainee, BuildingType.TrainingRoom)
+                && !buildings.StartService(scout, training) && trainerCommission > 0 && economy.CurrentGold == beforeTraining - trainingPrice,
+                "L’entraînement paie le tarif et sa commission une seule fois");
             buildings.Tick(9f);
             Check(trainee.stats.experience > 0 && trainee.IsAvailable && training.HasWorker(trainer.id),
                 "Fin d’entraînement : XP délivrée et place de service libérée");
@@ -190,42 +197,42 @@ public static class GuildWorkshopValidation
             Check(trainee.HealthFraction > 0f && trainee.HealthFraction < 1f, "Un blessé affiche des PV partiels");
             trainee.Tick(1f);
             Check(trainee.HealthFraction > .25f && trainee.HealthFraction < 1f, "Les PV remontent au cours de la guérison");
-            Check(buildings.StartService(trainee, infirmary) && buildings.AssignAdventurer(scout, BuildingType.Infirmary),
-                "Patients et soigneurs occupent des places distinctes");
-            buildings.Tick(9f);
+            Check(buildings.AssignAdventurer(scout, BuildingType.Infirmary), "Le soigneur occupe un poste distinct");
+            int beforeTreatment = economy.CurrentGold;
+            int treatmentPrice = buildings.GetServicePrice(trainee, infirmary, out int healerCommission);
+            Check(buildings.StartService(trainee, infirmary) && healerCommission > 0
+                && economy.CurrentGold == beforeTreatment - treatmentPrice, "Le soin paie le tarif et sa commission au lancement");
+            buildings.Tick(12f);
             Check(trainee.currentStateType == AdventurerStateType.Resting && trainee.currentService == null && trainee.HealthFraction == 1f,
                 "Les soins accélèrent la guérison et libèrent la place");
             trainee.Tick(20f);
             buildings.UnassignAdventurer(scout);
             scout.Tick(20f);
             var hq = buildings.GetBuilding(BuildingType.Headquarters);
-            float passiveInterval = buildings.MissionInterval;
-            float passiveQuality = buildings.MissionQualityBonus;
-            int passiveCapacity = buildings.MissionCapacity;
-            buildings.Tick(passiveInterval);
-            Check(buildings.MissionOffers.Count == 1 && buildings.MissionOffers[0].Contains("contrat"),
-                "Le quartier général trouve un contrat même sans éclaireur");
-            buildings.ArchiveMission(buildings.MissionOffers[0]);
-            Check(buildings.AssignAdventurer(scout, BuildingType.Headquarters) && buildings.MissionInterval < passiveInterval
-                && buildings.MissionCapacity > passiveCapacity && buildings.MissionQualityBonus > passiveQuality,
-                "Un éclaireur améliore la vitesse, la capacité et la qualité des missions");
-            buildings.Tick(16f);
-            Check(buildings.MissionOffers.Count == 1, "Un éclaireur découvre une mission");
-            int capacity = buildings.MissionCapacity;
+            float requestInterval = buildings.VillageRequestInterval;
+            int beforeRequest = economy.CurrentGold;
+            buildings.Tick(requestInterval + .1f);
+            Check(buildings.MissionCount(false) == 1 && buildings.MissionCount(true) == 0 && economy.CurrentGold == beforeRequest,
+                "Les villageois déposent une requête gratuite en l’absence d’éclaireur");
+            Check(buildings.AssignAdventurer(scout, BuildingType.Headquarters) && buildings.VillageRequestInterval == requestInterval,
+                "L’éclaireur ne modifie pas le rythme des requêtes des villageois");
+            buildings.Tick(buildings.ScoutInterval(scout) + .1f);
+            var discovery = new List<MissionOffer>(buildings.MissionOffers).Find(mission => mission.IsScouted);
+            Check(discovery?.ScoutName == scout.adventurerName && buildings.MissionCount(false) == 1
+                && economy.CurrentGold == beforeRequest - scout.CalculateCommission(40 * discovery.Level, JobType.Scout),
+                "La découverte s’ajoute aux requêtes et paie la commission liée à son niveau");
             int rosterCapacity = buildings.RosterCapacity;
-            float missionInterval = buildings.MissionInterval;
-            Check(buildings.UpgradeBuilding(BuildingType.Headquarters), "Amélioration du quartier général");
+            Check(buildings.UpgradeBuilding(BuildingType.Headquarters), "Amélioration du quartier général lancée");
             buildings.Tick(hq.upgradeTimeRemaining + .1f);
-            Check(buildings.RosterCapacity > rosterCapacity && buildings.MissionCapacity > capacity &&
-                buildings.MissionInterval < missionInterval, "Le niveau augmente l’effectif, la capacité de recherche et la vitesse");
-            capacity = buildings.MissionCapacity;
-            missionInterval = buildings.MissionInterval;
-            Check(buildings.AssignAdventurer(trainee, BuildingType.Headquarters) && buildings.MissionCapacity > capacity &&
-                buildings.MissionInterval < missionInterval, "Un second éclaireur augmente la capacité et la vitesse de recherche");
-            buildings.Tick(100f);
-            Check(buildings.MissionOffers.Count == buildings.MissionCapacity, "Le tableau respecte sa capacité de découverte");
-            buildings.ArchiveMission(buildings.MissionOffers[0]);
-            Check(buildings.MissionOffers.Count == buildings.MissionCapacity - 1, "Archiver une mission libère une place");
+            Check(buildings.RosterCapacity > rosterCapacity && buildings.VillageRequestCapacity == 2
+                && buildings.ScoutedMissionCapacity == 4 && buildings.VillageRequestInterval < requestInterval,
+                "Le quartier général agrandit les tableaux et augmente l’effectif");
+            Check(buildings.AssignAdventurer(trainee, BuildingType.Headquarters), "Deux éclaireurs peuvent prospecter");
+            buildings.Tick(120f);
+            Check(buildings.MissionCount(true) == buildings.ScoutedMissionCapacity
+                && buildings.MissionCount(false) == buildings.VillageRequestCapacity, "Les deux tableaux respectent leur propre capacité");
+            buildings.ArchiveMission(discovery);
+            Check(buildings.MissionCount(true) == buildings.ScoutedMissionCapacity - 1, "Archiver une découverte libère sa place");
             buildings.UnassignAdventurer(trainee);
             trainee.Tick(20f);
             var jewelry = buildings.GetRecipesForJob(JobType.Craftsman);
@@ -270,6 +277,7 @@ public static class GuildWorkshopValidation
             VerifyJobPerformance(Check, autoPause);
             VerifyGuildJobPerformance(Check, autoPause);
             VerifyRacialJobEffects(Check);
+            VerifyCalendarAndPayroll(Check, autoPause, clock);
             report.passed = true;
             Debug.Log($"Atelier : {report.checks.Count} vérifications réussies en mode Play.");
         }
@@ -528,13 +536,13 @@ public static class GuildWorkshopValidation
         smith.stats.chance = 5;
         smith.stats.vitalite = 5;
         var initial = JobPerformance.GetCrafting(smith, recipe, definition);
-        float fatiguePerSecond = smith.WorkFatiguePerSecond;
+        float fatiguePerHour = smith.WorkFatiguePerHour;
         smith.stats.force = 45;
         smith.stats.chance = 45;
         smith.stats.vitalite = 45;
         var improved = JobPerformance.GetCrafting(smith, recipe, definition);
         check(improved.Duration < initial.Duration && recipe.GetQualityChances(improved.QualityBonus).Normal < recipe.GetQualityChances(initial.QualityBonus).Normal
-            && smith.WorkFatiguePerSecond < fatiguePerSecond, "Force, Chance et Vitalité améliorent les performances de la Forge");
+            && smith.WorkFatiguePerHour < fatiguePerHour, "Force, Chance et Vitalité améliorent les performances de la Forge");
         check(buildings.AssignAdventurer(smith, BuildingType.Forge) && buildings.StartProduction(smith, recipe)
             && Mathf.Approximately(forge.activeTasks[0].totalDuration, improved.Duration),
             "La fabrication utilise la durée figurant dans l’aperçu");
@@ -590,27 +598,39 @@ public static class GuildWorkshopValidation
         worker.stats.charisme = 5;
         worker.stats.chance = 5;
         float refresh = roster.RecruitRefreshRemaining;
-        float trained = roster.TrainedRecruitChance;
+        float search = roster.GetRecruitSearchRemaining(worker);
+        float trained = AdventurerManager.TrainedRecruitChance(worker);
         worker.stats.charisme = 45;
-        check(roster.RecruitRefreshRemaining < refresh && roster.TrainedRecruitChance == trained,
-            "Le Charisme accélère le renouvellement des candidatures");
+        check(roster.GetRecruitSearchRemaining(worker) < search && roster.RecruitRefreshRemaining == refresh
+            && AdventurerManager.TrainedRecruitChance(worker) == trained,
+            "Le Charisme accélère uniquement la prospection");
         worker.stats.chance = 45;
-        check(roster.TrainedRecruitChance > trained, "La Chance augmente la probabilité d’une recrue expérimentée");
+        check(AdventurerManager.TrainedRecruitChance(worker) > trained,
+            "La Chance favorise les candidats expérimentés trouvés");
+        int beforeSearch = EconomyManager.Instance.CurrentGold;
         var oldOffer = roster.GetRecruitPool()[0];
+        int oldCount = roster.GetRecruitPool().Count;
+        roster.Tick(roster.GetRecruitSearchRemaining(worker) + .1f);
+        var sourced = roster.GetRecruitPool().Find(offer => offer.IsSourced);
+        check(sourced?.recruiterId == worker.id && roster.GetRecruitPool().Count == oldCount + 1
+            && roster.GetRecruitPool().Contains(oldOffer) && EconomyManager.Instance.CurrentGold == beforeSearch
+                - worker.CalculateCommission(20 * sourced.candidate.stats.level, JobType.Recruiter),
+            "La prospection ajoute un candidat et le recruteur reçoit une commission");
         roster.Tick(roster.RecruitRefreshRemaining + .1f);
-        check(!roster.GetRecruitPool().Contains(oldOffer), "La liste se renouvelle selon le délai affiché");
+        check(!roster.GetRecruitPool().Contains(oldOffer) && roster.GetRecruitPool().Contains(sourced),
+            "Le renouvellement des candidatures spontanées préserve les candidats trouvés");
 
         buildings.UnassignAdventurer(worker);
         check(buildings.AssignAdventurer(worker, BuildingType.Headquarters), "Le même aventurier peut passer au quartier général");
         worker.stats.agilite = 5;
         worker.stats.chance = 5;
-        float interval = buildings.MissionInterval;
-        float prestigeChance = buildings.MissionPrestigiousChance;
+        float interval = buildings.ScoutInterval(worker);
+        float prestigeChance = BuildingManager.ScoutPrestigiousChance(worker);
         worker.stats.agilite = 45;
-        check(buildings.MissionInterval < interval && buildings.MissionPrestigiousChance == prestigeChance,
+        check(buildings.ScoutInterval(worker) < interval && BuildingManager.ScoutPrestigiousChance(worker) == prestigeChance,
             "L’Agilité accélère la recherche de contrats");
         worker.stats.chance = 45;
-        check(buildings.MissionPrestigiousChance > prestigeChance, "La Chance augmente la probabilité d’un contrat prestigieux");
+        check(BuildingManager.ScoutPrestigiousChance(worker) > prestigeChance, "La Chance augmente la probabilité d’un contrat prestigieux");
 
         buildings.UnassignAdventurer(worker);
         check(buildings.AssignAdventurer(worker, BuildingType.TrainingRoom)
@@ -638,6 +658,51 @@ public static class GuildWorkshopValidation
         buildings.Tick(.5f);
         check(100f - guest.stats.fatigue > fatigueRecovered && guest.stats.moral > moraleRecovered,
             "La Sagesse du tavernier accélère la récupération de la fatigue et du moral");
+    }
+
+    private static void VerifyCalendarAndPayroll(Action<bool, string> check, Toggle autoPause, TimeManager clock)
+    {
+        GameManager.Instance.StartNewGame();
+        autoPause.value = false;
+        var roster = AdventurerManager.Instance;
+        var economy = EconomyManager.Instance;
+        var buildings = BuildingManager.Instance;
+        var member = roster.GetRecruitPool()[0].candidate;
+        var dead = roster.GetRecruitPool()[1].candidate;
+        check(roster.HireAdventurer(member.id) && roster.HireAdventurer(dead.id), "Deux aventuriers rejoignent la guilde pour vérifier la paie");
+        roster.KillAdventurer(dead.id);
+        int levelOneSalary = member.CalculateSalary();
+        member.stats.level = 3;
+        member.GetJobInstance(JobType.Healer).currentLevel = 10;
+        check(member.CalculateSalary() > levelOneSalary
+            && member.GetCommissionRate(JobType.Healer) > member.GetCommissionRate(JobType.Trainer),
+            "Niveau général et moyenne des métiers influencent le salaire, niveau du métier et commission sont liés");
+
+        int initial = economy.CurrentGold;
+        int payroll = member.CalculateSalary();
+        clock.SetSpeed(GameSpeed.Normal);
+        clock.Advance(1f);
+        check(clock.Year == 1 && clock.Month == 1 && clock.Day == 1 && clock.Hour == 1,
+            "Une seconde à vitesse normale représente une heure");
+        clock.Advance(TimeManager.HoursPerMonth - 2);
+        check(clock.Month == 1 && clock.Day == 30 && clock.Hour == 23 && economy.CurrentGold == initial,
+            "Le salaire n’est pas débité avant le changement de mois");
+        clock.SetSpeed(GameSpeed.Paused);
+        clock.Advance(30f);
+        check(clock.Month == 1 && economy.CurrentGold == initial, "La pause suspend le passage du mois et la paie");
+        clock.SetSpeed(GameSpeed.Normal);
+        clock.Advance(1f);
+        check(clock.Month == 2 && clock.Day == 1 && clock.Hour == 0 && economy.CurrentGold == initial - payroll,
+            "Un seul salaire est versé au changement de mois, hors aventuriers décédés");
+        clock.Advance(TimeManager.HoursPerMonth * (TimeManager.MonthsPerYear - 1));
+        check(clock.Year == 2 && clock.Month == 1 && clock.Day == 1 && clock.Hour == 0
+            && economy.CurrentGold == initial - payroll * TimeManager.MonthsPerYear, "Le calendrier et la paie suivent le changement d’année");
+
+        member.SetInjured();
+        var infirmary = buildings.GetBuilding(BuildingType.Infirmary);
+        economy.LoadEconomy(0, new());
+        check(!buildings.StartService(member, infirmary) && member.currentService == null && economy.CurrentGold == 0,
+            "Un soin impayable ne réserve pas de place");
     }
 
     private static void VerifyRacialJobEffects(Action<bool, string> check)
@@ -690,7 +755,7 @@ public static class GuildWorkshopValidation
     private static Button GetDecisionButton(GuildWorkshopUI ui, string label)
     {
         typeof(GuildWorkshopUI).GetMethod("Render", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(ui, null);
-        return ui.Root.Q("status-actions").Query<Button>().ToList().Find(button => button.text == label);
+        return ui.Root.Q("status-actions").Query<Button>().ToList().Find(button => button.name == label || button.text == label);
     }
 
     private static void SubmitDecision(GuildWorkshopUI ui, string label)

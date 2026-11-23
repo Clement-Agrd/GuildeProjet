@@ -136,9 +136,12 @@ public class Adventurer
         traitIds = new List<string>();
         foreach (var t in traits) traitIds.Add(t.name);
 
-        stats = new AdventurerStats(classData?.baseStats ?? new AdventurerStats());
-        raceData?.ApplyToStats(stats);
-        stats.ClampSecondaryStats();
+        stats = AdventurerStats.RollStartingStats();
+        if (classData != null)
+        {
+            foreach (var modifier in classData.startingStatModifiers)
+                stats.AddToPrimary(modifier.stat, modifier.value);
+        }
 
         InitializeJobs();
 
@@ -201,13 +204,13 @@ public class Adventurer
     public float HealthFraction => currentStateType == AdventurerStateType.Dead ? 0f
         : _currentState is InjuredState injury ? injury.HealthFraction : 1f;
 
-    public float WorkFatiguePerSecond => JobPerformance.GetEffect(this, JobEffectType.WorkFatigue).Total;
-    public float RestRecoveryPerSecond => 10f * GetTraitMultiplier(TraitEffectType.FatigueRecovery_Multiplier);
+    public float WorkFatiguePerHour => JobPerformance.GetEffect(this, JobEffectType.WorkFatigue).Total;
+    public float RestRecoveryPerHour => 10f * GetTraitMultiplier(TraitEffectType.FatigueRecovery_Multiplier);
 
-    internal void AddWorkFatigue(float secondsWorked)
+    internal void AddWorkFatigue(float workHours)
     {
-        if (secondsWorked <= 0f || currentStateType != AdventurerStateType.Working) return;
-        stats.fatigue += WorkFatiguePerSecond * secondsWorked;
+        if (workHours <= 0f || currentStateType != AdventurerStateType.Working) return;
+        stats.fatigue += WorkFatiguePerHour * workHours;
         stats.ClampSecondaryStats();
         if (IsExhausted) SetResting();
     }
@@ -335,41 +338,26 @@ public class Adventurer
     // Économie
     // =========================================================================
 
-    public int CalculateSalary(JobDefinitionSO activeJobDef = null)
+    public int CalculateSalary()
     {
-        if (adventurerClass == null) return 0;
-
-        float salary = adventurerClass.baseSalary;
-        salary *= 1f + (stats.level - 1) * 0.1f;
+        int totalJobLevels = 0;
+        foreach (var job in jobInstanceList)
+            totalJobLevels += job.currentLevel;
+        float averageJobLevel = jobInstanceList.Count == 0 ? 0f : (float)totalJobLevels / jobInstanceList.Count;
+        float salary = (adventurerClass?.baseSalary ?? 10) + 3f * (stats.level - 1) + 3f * averageJobLevel;
         salary *= GetTraitMultiplier(TraitEffectType.Salary_Multiplier);
-
-        if (activeJobDef != null && activeJobDef.jobType != JobType.None)
-        {
-            var jobInst = GetJobInstance(activeJobDef.jobType);
-            if (jobInst != null)
-                salary *= jobInst.GetSalaryMultiplier(activeJobDef);
-        }
-
         return Mathf.Max(1, Mathf.RoundToInt(salary));
     }
 
-    /// <summary>
-    /// Commission prélevée sur la vente d'un objet fabriqué.
-    /// jobType/jobDef doivent correspondre au métier utilisé AU MOMENT DU CRAFT
-    /// (stocké sur EquipmentInstance.craftedByJobType), pas au métier actuel.
-    /// </summary>
-    public float CalculateCommission(float salePrice, JobType jobType, JobDefinitionSO jobDef)
+    public float GetCommissionRate(JobType job)
     {
-        float rate = 0.15f;
-
-        if (adventurerClass != null && jobType != JobType.None)
-            rate -= adventurerClass.GetJobAffinityBonus(jobType) * 0.5f;
-
-        rate *= GetTraitMultiplier(TraitEffectType.Commission_Multiplier);
-        rate  = Mathf.Clamp(rate, 0.05f, 0.30f);
-
-        return salePrice * rate;
+        int level = GetJobInstance(job)?.currentLevel ?? 0;
+        float rate = (0.05f + 0.01f * level) * GetTraitMultiplier(TraitEffectType.Commission_Multiplier);
+        return Mathf.Clamp(rate, 0.05f, 0.30f);
     }
+
+    public int CalculateCommission(int value, JobType job) => value <= 0 ? 0
+        : Mathf.Max(1, Mathf.RoundToInt(value * GetCommissionRate(job)));
 
     // =========================================================================
     // XP général

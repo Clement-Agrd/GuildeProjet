@@ -11,14 +11,24 @@ public class TimeManager : MonoBehaviour
     [SerializeField] private AdventurerManager adventurers;
     [SerializeField] private GameSpeed initialSpeed = GameSpeed.Normal;
 
-    private const float Step = 0.1f;
+    public const int HoursPerDay = 24;
+    public const int DaysPerMonth = 30;
+    public const int MonthsPerYear = 12;
+    public const int HoursPerMonth = HoursPerDay * DaysPerMonth;
+    private const int StepsPerHour = 10;
+    private const double Step = 1d / StepsPerHour;
     private double _accumulator;
+    private long _elapsedSteps;
     private bool _initialized;
     private GameSpeed _resumeSpeed = GameSpeed.Normal;
     private InputAction _pauseShortcut;
 
     public GameSpeed CurrentSpeed { get; private set; } = GameSpeed.Paused;
-    public double ElapsedGameTime { get; private set; }
+    public double ElapsedGameTime => _elapsedSteps * Step;
+    public long Year => _elapsedSteps / (StepsPerHour * HoursPerMonth * MonthsPerYear) + 1;
+    public int Month => (int)(_elapsedSteps / (StepsPerHour * HoursPerMonth) % MonthsPerYear) + 1;
+    public int Day => (int)(_elapsedSteps / (StepsPerHour * HoursPerDay) % DaysPerMonth) + 1;
+    public int Hour => (int)(_elapsedSteps / StepsPerHour % HoursPerDay);
     public event Action<GameSpeed> OnSpeedChanged;
 
     private void Awake()
@@ -52,7 +62,7 @@ public class TimeManager : MonoBehaviour
     public void ResetForNewGame()
     {
         _accumulator = 0;
-        ElapsedGameTime = 0;
+        _elapsedSteps = 0;
         _initialized = true;
         _resumeSpeed = initialSpeed == GameSpeed.Paused ? GameSpeed.Normal : initialSpeed;
         SetSpeed(initialSpeed);
@@ -84,7 +94,7 @@ public class TimeManager : MonoBehaviour
 
     private void Update() => Advance(Time.unscaledDeltaTime);
 
-    // Pas fixe commun aux vitesses x1/x2/x3 : la fatigue ne saute pas une fabrication.
+    // À vitesse normale, une seconde réelle fait avancer la simulation d'une heure de jeu.
     public void Advance(float realSeconds)
     {
         if (!_initialized || CurrentSpeed == GameSpeed.Paused ||
@@ -94,12 +104,14 @@ public class TimeManager : MonoBehaviour
         while (CurrentSpeed != GameSpeed.Paused && _accumulator + 0.000001 >= Step)
         {
             _accumulator -= Step;
-            economy.Tick(Step);
-            buildings.TrackWorkerActivity(Step);
-            buildings.Tick(Step);
-            adventurers.Tick(Step);
+            _elapsedSteps++;
+            if (_elapsedSteps % (StepsPerHour * HoursPerMonth) == 0)
+                economy.PayMonthlyPayroll(adventurers.GetAllAdventurers());
+            economy.Tick((float)Step);
+            buildings.TrackWorkerActivity((float)Step);
+            buildings.Tick((float)Step);
+            adventurers.Tick((float)Step);
             buildings.ApplyWorkerFatigue();
-            ElapsedGameTime += Step;
         }
     }
 }

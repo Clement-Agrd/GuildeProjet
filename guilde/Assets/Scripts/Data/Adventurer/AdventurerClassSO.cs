@@ -10,8 +10,8 @@ public class AdventurerClassSO : ScriptableObject
     [TextArea(2, 4)] public string description;
     public Sprite icon;
 
-    [Header("Stats de base (bonus additif appliqué à la création)")]
-    public AdventurerStats baseStats = new();
+    [Header("Modificateurs de stats à la création")]
+    public List<PrimaryStatModifier> startingStatModifiers = new();
 
     [Header("Armes maîtrisées")]
     public List<WeaponType> masteredWeapons = new();

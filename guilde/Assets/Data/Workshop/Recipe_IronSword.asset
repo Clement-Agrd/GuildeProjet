@@ -13,7 +13,7 @@ MonoBehaviour:
   m_Name: Recipe_IronSword
   m_EditorClassIdentifier: Assembly-CSharp::CraftRecipeSO
   recipeName: "\xC9p\xE9e de fer"
-  description: 
+  description:
   requiredJob: 1
   requiredJobLevel: 0
   isUnlocked: 1
@@ -22,6 +22,8 @@ MonoBehaviour:
     amount: 2
   - resource: {fileID: 11400000, guid: 7ae4850f0a5a1084f95f8f55172b8ad9, type: 2}
     amount: 1
+  refinedMaterial: {fileID: 11400000, guid: a9ee5cf667d14078aef5dcdbda01a5b4, type: 2}
+  masterworkMaterial: {fileID: 11400000, guid: be911a4b40124bd9995af6a8c715ed33, type: 2}
   outputResource: {fileID: 0}
   outputResourceAmount: 1
   outputEquipment: {fileID: 11400000, guid: 653f83f52d2982e4a95efa7551cd2e3b, type: 2}

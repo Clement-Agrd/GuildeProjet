@@ -16,7 +16,7 @@
             <ui:Button name="open-journal" text="Journal" tooltip="Ouvrir le journal de la guilde" class="journal-open" />
             <ui:Button name="guild-home" text="Guilde" tooltip="Revenir à la cour de la guilde" class="guild-home" />
             <ui:VisualElement class="time-controls">
-                <ui:Label name="clock" text="00:00" class="clock" />
+                <ui:Label name="clock" text="An 1 · Mois 01 · Jour 01 · 00 h" class="clock" />
                 <ui:VisualElement class="row">
                     <ui:Toggle name="auto-pause" text="Auto" tooltip="Mettre le jeu en pause quand une décision peut éviter une perte de temps" class="auto-pause" />
                     <ui:Button name="pause" text="Pause" tooltip="Mettre en pause ou reprendre (Espace)" />

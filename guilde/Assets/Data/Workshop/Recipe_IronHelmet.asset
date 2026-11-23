@@ -1,0 +1,35 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 306f3889615b4c4b96e10b8a0ffe717d, type: 3}
+  m_Name: Recipe_IronHelmet
+  m_EditorClassIdentifier: Assembly-CSharp::CraftRecipeSO
+  recipeName: Casque de fer
+  description:
+  requiredJob: 1
+  requiredJobLevel: 0
+  isUnlocked: 1
+  inputResources:
+  - resource: {fileID: 11400000, guid: bd1eb15bbdcc4f840b2fd8492661ee4c, type: 2}
+    amount: 2
+  - resource: {fileID: 11400000, guid: 5a782c8caa5866446a51899f58a7c07d, type: 2}
+    amount: 1
+  refinedMaterial: {fileID: 11400000, guid: a9ee5cf667d14078aef5dcdbda01a5b4, type: 2}
+  masterworkMaterial: {fileID: 11400000, guid: be911a4b40124bd9995af6a8c715ed33, type: 2}
+  outputResource: {fileID: 0}
+  outputResourceAmount: 1
+  outputEquipment: {fileID: 11400000, guid: 247695c34704480ca9d0880aa5c9ce3d, type: 2}
+  baseCraftDuration: 6
+  baseGoldValue: 50
+  normalChance: 0.7
+  rareChance: 0.2
+  epicChance: 0.08
+  legendaryChance: 0.02

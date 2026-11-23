@@ -15,7 +15,9 @@ public class AdventurerManager : MonoBehaviour
 
     [Header("Recrutement")]
     [SerializeField] private int   recruitPoolSize    = 4;
-    [SerializeField] private float recruitRefreshTime = 300f; // secondes de jeu
+    [SerializeField, Min(1f)] private float recruitRefreshTime = 300f;
+    private const float RecruitSearchHours = 120f;
+    public const int SourcedOffersPerRecruiter = 2;
     [SerializeField] private int   baseHiringBonus    = 20;
 
     // ─── Roster ───────────────────────────────────────────────────────────────
@@ -25,6 +27,7 @@ public class AdventurerManager : MonoBehaviour
     // ─── Recrutement ──────────────────────────────────────────────────────────
     private readonly List<RecruitOffer> _recruitPool = new();
     private float _recruitTimer;
+    private readonly Dictionary<string, float> _recruitSearchProgress = new();
 
     // ─── Events ───────────────────────────────────────────────────────────────
     public event Action<Adventurer>               OnAdventurerHired;
@@ -34,6 +37,7 @@ public class AdventurerManager : MonoBehaviour
     public event Action<Adventurer, int>          OnAdventurerLevelUp;
     public event Action<Adventurer, JobType, int> OnAdventurerJobLevelUp;
     public event Action                           OnRecruitPoolRefreshed;
+    public event Action<RecruitOffer, int>          OnRecruitSourced;
 
     // =========================================================================
     // Unity lifecycle
@@ -70,30 +74,61 @@ public class AdventurerManager : MonoBehaviour
         }
         _roster.Clear();
         _byId.Clear();
-        _recruitTimer = 0f;
+        _recruitPool.Clear();
+        _recruitSearchProgress.Clear();
         RefreshRecruitPool();
     }
 
-    public float RecruitRefreshRemaining
-        => Mathf.Max(0f, recruitRefreshTime - _recruitTimer) / (1f + GetRecruitmentBonuses().Speed);
-    public float TrainedRecruitChance => Mathf.Min(MaxTrainedRecruitChance, BaseTrainedRecruitChance + GetRecruitmentBonuses().TrainedChance);
+    private float RecruitRefreshHours => Mathf.Max(1f, recruitRefreshTime);
+    public float RecruitRefreshRemaining => Mathf.Max(0f, RecruitRefreshHours - _recruitTimer);
 
-    private (float Speed, float TrainedChance) GetRecruitmentBonuses()
+    public static float RecruitSearchInterval(Adventurer recruiter)
+        => RecruitSearchHours / (1f + JobPerformance.Recruitment(recruiter).SpeedBonus);
+
+    public static float TrainedRecruitChance(Adventurer recruiter) => Mathf.Min(MaxTrainedRecruitChance,
+        BaseTrainedRecruitChance + JobPerformance.Recruitment(recruiter).TrainedChanceBonus);
+
+    public int GetSourcedOfferCount(Adventurer recruiter)
     {
-        var building = BuildingManager.Instance?.GetBuilding(BuildingType.Recruiter);
-        if (building?.IsActive != true) return (0f, 0f);
+        int count = 0;
+        foreach (var offer in _recruitPool)
+            if (offer.recruiterId == recruiter.id) count++;
+        return count;
+    }
 
-        float speed = 0f;
-        float trainedChance = 0f;
-        foreach (string workerId in building.assignedAdventurerIds)
+    public float GetRecruitSearchRemaining(Adventurer recruiter)
+    {
+        _recruitSearchProgress.TryGetValue(recruiter.id, out float progress);
+        return (1f - progress) * RecruitSearchInterval(recruiter);
+    }
+
+    internal void ResetRecruitSearch(string recruiterId) => _recruitSearchProgress.Remove(recruiterId);
+
+    private void TickRecruitSearch(float hours)
+    {
+        var building = BuildingManager.Instance.GetBuilding(BuildingType.Recruiter);
+        if (building?.IsActive != true || allClasses.Count == 0 || allRaces.Count == 0) return;
+        for (int i = building.assignedAdventurerIds.Count - 1; i >= 0; i--)
         {
-            var worker = GetById(workerId);
-            if (worker == null) continue;
-            var bonus = JobPerformance.Recruitment(worker);
-            speed += bonus.SpeedBonus;
-            trainedChance += bonus.TrainedChanceBonus;
+            var recruiter = GetById(building.assignedAdventurerIds[i]);
+            if (recruiter == null || GetSourcedOfferCount(recruiter) >= SourcedOffersPerRecruiter) continue;
+            _recruitSearchProgress.TryGetValue(recruiter.id, out float progress);
+            progress += hours / RecruitSearchInterval(recruiter);
+            while (progress >= 1f && GetSourcedOfferCount(recruiter) < SourcedOffersPerRecruiter)
+            {
+                progress -= 1f;
+                var offer = GenerateRecruit(TrainedRecruitChance(recruiter), recruiter);
+                _recruitPool.Add(offer);
+                int commission = EconomyManager.Instance.PayCommission(recruiter, JobType.Recruiter, 20 * offer.candidate.stats.level);
+                recruiter.AddJobExperience(JobType.Recruiter, 25, BuildingManager.Instance.GetJobDefinition(JobType.Recruiter));
+                OnRecruitSourced?.Invoke(offer, commission);
+                recruiter.AddWorkFatigue(1f);
+                if (!building.HasWorker(recruiter.id)) break;
+            }
+            if (building.HasWorker(recruiter.id))
+                _recruitSearchProgress[recruiter.id] = GetSourcedOfferCount(recruiter) >= SourcedOffersPerRecruiter
+                    ? 0f : Mathf.Clamp01(progress);
         }
-        return (speed, trainedChance);
     }
 
     // =========================================================================
@@ -104,18 +139,20 @@ public class AdventurerManager : MonoBehaviour
     {
         foreach (var a in _roster)
         {
-            if (a.currentService == BuildingType.Tavern) continue;
+            if (a.currentService is BuildingType.Tavern or BuildingType.Infirmary) continue;
             bool wasResting = a.currentStateType == AdventurerStateType.Resting;
             a.Tick(deltaTime);
             if (wasResting && a.IsAvailable) OnAdventurerRested?.Invoke(a);
         }
 
-        _recruitTimer += deltaTime * (1f + GetRecruitmentBonuses().Speed);
-        if (_recruitTimer >= recruitRefreshTime)
+        _recruitTimer += deltaTime;
+        if (_recruitTimer >= RecruitRefreshHours)
         {
-            _recruitTimer = 0f;
+            float remaining = _recruitTimer % RecruitRefreshHours;
             RefreshRecruitPool();
+            _recruitTimer = remaining;
         }
+        TickRecruitSearch(deltaTime);
     }
 
     // =========================================================================
@@ -131,7 +168,6 @@ public class AdventurerManager : MonoBehaviour
 
         _recruitPool.Remove(offer);
         RegisterAdventurer(offer.candidate);
-        BuildingManager.Instance?.RecordTransactionWork(BuildingType.Recruiter);
         OnAdventurerHired?.Invoke(offer.candidate);
         return true;
     }
@@ -172,21 +208,15 @@ public class AdventurerManager : MonoBehaviour
 
     public void RefreshRecruitPool()
     {
-        _recruitPool.Clear();
+        _recruitPool.RemoveAll(offer => !offer.IsSourced);
         _recruitTimer = 0f;
-        if (allClasses.Count == 0 || allRaces.Count == 0)
-        {
-            OnRecruitPoolRefreshed?.Invoke();
-            return;
-        }
-        float trainedChance = TrainedRecruitChance;
-        for (int i = 0; i < recruitPoolSize; i++)
-            _recruitPool.Add(GenerateRecruit(trainedChance));
-
+        if (allClasses.Count > 0 && allRaces.Count > 0)
+            for (int i = 0; i < recruitPoolSize; i++)
+                _recruitPool.Add(GenerateRecruit(BaseTrainedRecruitChance));
         OnRecruitPoolRefreshed?.Invoke();
     }
 
-    private RecruitOffer GenerateRecruit(float trainedChance)
+    private RecruitOffer GenerateRecruit(float trainedChance, Adventurer recruiter = null)
     {
         var cls  = allClasses[UnityEngine.Random.Range(0, allClasses.Count)];
         var race = allRaces[UnityEngine.Random.Range(0, allRaces.Count)];
@@ -207,9 +237,15 @@ public class AdventurerManager : MonoBehaviour
         // Les recrues proposées peuvent déjà avoir du niveau dans un métier
         if (UnityEngine.Random.value < trainedChance)
         {
+            if (recruiter != null)
+            {
+                int level = UnityEngine.Random.Range(2, 4);
+                while (candidate.stats.level < level)
+                    candidate.stats.AddExperience(candidate.stats.experienceToNextLevel);
+            }
             var jobType = (JobType)UnityEngine.Random.Range(1, Enum.GetValues(typeof(JobType)).Length);
             var jobInst = candidate.GetJobInstance(jobType);
-            var jobDef  = BuildingManager.Instance.GetJobDefinition(jobType);
+            var jobDef  = BuildingManager.Instance?.GetJobDefinition(jobType);
             if (jobInst != null && jobDef != null)
             {
                 int preLevels = UnityEngine.Random.Range(1, 4);
@@ -219,7 +255,7 @@ public class AdventurerManager : MonoBehaviour
         }
 
         int bonus = Mathf.RoundToInt(baseHiringBonus * (1f + candidate.stats.level * 0.2f));
-        return new RecruitOffer(candidate, bonus);
+        return new RecruitOffer(candidate, bonus, recruiter);
     }
 
     public List<RecruitOffer> GetRecruitPool() => _recruitPool;
@@ -288,6 +324,8 @@ public class AdventurerManager : MonoBehaviour
     public void OnAfterLoad()
     {
         _byId.Clear();
+        _recruitPool.Clear();
+        _recruitSearchProgress.Clear();
         foreach (var a in _roster)
         {
             var cls    = GetClassById(a.classId);
@@ -311,12 +349,18 @@ public class AdventurerManager : MonoBehaviour
 public class RecruitOffer
 {
     public Adventurer candidate;
-    public int         hiringBonus;
+    public int hiringBonus;
+    public string recruiterId;
+    public string recruiterName;
+    public bool IsSourced => !string.IsNullOrEmpty(recruiterId);
 
     public RecruitOffer() { }
-    public RecruitOffer(Adventurer candidate, int hiringBonus)
+
+    public RecruitOffer(Adventurer candidate, int hiringBonus, Adventurer recruiter = null)
     {
-        this.candidate   = candidate;
+        this.candidate = candidate;
         this.hiringBonus = hiringBonus;
+        recruiterId = recruiter?.id;
+        recruiterName = recruiter?.adventurerName;
     }
 }

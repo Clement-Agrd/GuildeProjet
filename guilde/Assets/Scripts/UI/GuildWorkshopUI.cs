@@ -80,12 +80,14 @@ public partial class GuildWorkshopUI : MonoBehaviour
         adventurers.OnAdventurerLevelUp += HandleLevelUp;
         adventurers.OnAdventurerJobLevelUp += HandleJobLevelUp;
         adventurers.OnRecruitPoolRefreshed += MarkDirty;
+        adventurers.OnRecruitSourced += HandleRecruitSourced;
         buildings.OnAdventurerAssigned += HandleAssigned;
         buildings.OnAdventurerUnassigned += HandleUnassigned;
         buildings.OnProductionCompleted += HandleProduction;
         buildings.OnProductionBlocked += HandleProductionBlocked;
         buildings.OnBuildingUpgraded += HandleUpgrade;
         economy.OnGoldChanged += HandleGold;
+        economy.OnMonthlyPayrollPaid += HandlePayroll;
         economy.OnBankruptcyStarted += HandleBankruptcy;
         economy.OnBankruptcyEnded += MarkDirty;
         inventory.OnResourceChanged += HandleResource;
@@ -112,12 +114,14 @@ public partial class GuildWorkshopUI : MonoBehaviour
         adventurers.OnAdventurerLevelUp -= HandleLevelUp;
         adventurers.OnAdventurerJobLevelUp -= HandleJobLevelUp;
         adventurers.OnRecruitPoolRefreshed -= MarkDirty;
+        adventurers.OnRecruitSourced -= HandleRecruitSourced;
         buildings.OnAdventurerAssigned -= HandleAssigned;
         buildings.OnAdventurerUnassigned -= HandleUnassigned;
         buildings.OnProductionCompleted -= HandleProduction;
         buildings.OnProductionBlocked -= HandleProductionBlocked;
         buildings.OnBuildingUpgraded -= HandleUpgrade;
         economy.OnGoldChanged -= HandleGold;
+        economy.OnMonthlyPayrollPaid -= HandlePayroll;
         economy.OnBankruptcyStarted -= HandleBankruptcy;
         economy.OnBankruptcyEnded -= MarkDirty;
         inventory.OnResourceChanged -= HandleResource;
@@ -134,7 +138,7 @@ public partial class GuildWorkshopUI : MonoBehaviour
         if (!_bound || !game.IsInitialized) return;
         var selectedState = adventurers.GetById(_selectedId)?.currentStateType;
         if (_selectedState != selectedState) { _selectedState = selectedState; MarkDirty(); }
-        if (_dirty && !RosterPointerHeld && !_dragging && !(_equipmentPanel?.IsDragging ?? false)) Render();
+        if (_dirty && !RosterPointerHeld && !_dragging && !_forgeWorkerDragging && !(_equipmentPanel?.IsDragging ?? false)) Render();
         if (Time.unscaledTime < _nextRefresh) return;
         _nextRefresh = Time.unscaledTime + 0.15f;
         RefreshHud();
@@ -279,20 +283,31 @@ public partial class GuildWorkshopUI : MonoBehaviour
         RenderTradeStaff(BuildingType.Recruiter);
         Text(_content, $"Aventuriers · {buildings.RosterOccupancy}/{buildings.RosterCapacity}", "tag");
         if (!buildings.CanHire) Text(_content, "Recrutement fermé. Vérifiez la capacité au quartier général.", "empty");
-        var refresh = Text(_content, "", "card-meta");
-        _liveUpdates.Add(() => refresh.text = $"Nouvelles candidatures dans {adventurers.RecruitRefreshRemaining:0} s de jeu.");
-        Text(_content, $"Chance qu’une nouvelle recrue ait déjà un niveau de métier · {adventurers.TrainedRecruitChance:P1}", "card-meta");
         var offers = adventurers.GetRecruitPool();
         _expandedRecruits.RemoveWhere(id => !offers.Exists(offer => offer.candidate.id == id));
+        Subheading("CANDIDATURES SPONTANÉES");
+        var refresh = Text(_content, "", "card-meta");
+        _liveUpdates.Add(() => refresh.text = $"Renouvellement dans {adventurers.RecruitRefreshRemaining:0.#} h.");
+        RenderRecruitOffers(offers, false);
+        Subheading("AVENTURIERS TROUVÉS PAR VOS RECRUTEURS");
+        RenderRecruitOffers(offers, true);
+    }
+
+    private void RenderRecruitOffers(List<RecruitOffer> offers, bool sourced)
+    {
         var grid = new VisualElement();
         grid.AddToClassList("recruit-grid");
         _content.Add(grid);
+        int count = 0;
         foreach (var offer in offers)
         {
+            if (offer.IsSourced != sourced) continue;
+            count++;
             var a = offer.candidate;
             var card = Card(grid, a.adventurerName);
             card.AddToClassList("recruit-card");
             Text(card, Identity(a) + $" · {a.age} ans", "card-meta");
+            if (sourced) Text(card, $"Trouvé par {offer.recruiterName}", "card-meta");
             Text(card, Traits(a), "tag");
             var attributes = new List<PrimaryStat>();
             foreach (PrimaryStat stat in Enum.GetValues(typeof(PrimaryStat))) attributes.Add(stat);
@@ -305,7 +320,7 @@ public partial class GuildWorkshopUI : MonoBehaviour
             var learnedJobs = a.jobInstanceList.FindAll(job => job.currentLevel > 0);
             learnedJobs.Sort((left, right) => right.currentLevel.CompareTo(left.currentLevel));
             Text(card, learnedJobs.Count == 0 ? "Aucun métier acquis" : string.Join(" · ", learnedJobs.ConvertAll(RecruitJob)), "tag");
-            Text(card, $"Salaire estimé {a.CalculateSalary()} or · Prime {offer.hiringBonus} or", "card-meta");
+            Text(card, $"Salaire {a.CalculateSalary()} or/mois · Prime {offer.hiringBonus} or", "card-meta");
 
             var details = new Foldout { text = "Voir le profil complet", value = _expandedRecruits.Contains(a.id) };
             details.AddToClassList("recruit-details");
@@ -321,12 +336,6 @@ public partial class GuildWorkshopUI : MonoBehaviour
             Text(details, "NIVEAUX DE MÉTIER", "subheading");
             foreach (var job in a.jobInstanceList)
                 Text(details, RecruitJob(job), "card-meta");
-            if (a.adventurerClass != null && a.adventurerClass.jobAffinities.Count > 0)
-            {
-                Text(details, "APTITUDES DE CLASSE", "subheading");
-                foreach (var affinity in a.adventurerClass.jobAffinities)
-                    Text(details, $"{JobLabel(affinity.jobType)} · affinité {affinity.performanceBonus:+0%;-0%;0%}", "card-meta");
-            }
             if (a.traits.Count > 0)
             {
                 Text(details, "EFFETS DES TRAITS", "subheading");
@@ -346,8 +355,8 @@ public partial class GuildWorkshopUI : MonoBehaviour
                 if (adventurers.DeclineRecruit(a.id)) MarkDirty();
             }).AddToClassList("quiet");
         }
-        if (offers.Count == 0)
-            Text(_content, "Aucune candidature disponible. De nouveaux candidats arriveront au prochain renouvellement.", "empty");
+        if (count == 0)
+            Text(_content, sourced ? "Aucun aventurier trouvé pour le moment." : "Aucune candidature spontanée disponible.", "empty");
     }
 
     private string JobLabel(JobType job) => buildings.GetJobDefinition(job)?.jobName ?? job.ToString();
@@ -361,6 +370,11 @@ public partial class GuildWorkshopUI : MonoBehaviour
         Heading("LE CŒUR DE L’ARTISANAT", b?.definition?.buildingName ?? "Bâtiment");
         if (b == null) return;
         if (b.buildingType != BuildingType.Forge && b.buildingType != BuildingType.Workshop) { RenderGuildBuilding(b); return; }
+        if (b.buildingType == BuildingType.Forge)
+        {
+            RenderForge(b);
+            return;
+        }
         Text(_content, b.definition.description, "card-meta");
         Text(_content, $"Niveau {b.currentLevel} / {b.definition.maxLevel} · {b.assignedAdventurerIds.Count} / {b.MaxWorkers} artisans", "tag");
         var columns = new VisualElement();
@@ -377,50 +391,85 @@ public partial class GuildWorkshopUI : MonoBehaviour
         columns.Add(stock);
 
         RenderStaff(staff, b);
-        if (b.activeTasks.Count > 0) Text(recipes, "COMMANDES EN COURS", "subheading");
-        foreach (var task in b.activeTasks)
+        RenderProductionOrders(recipes, b);
+        Text(recipes, "CARNET DE RECETTES", "subheading");
+        foreach (var recipe in buildings.GetRecipesForJob(b.definition.associatedJobType))
+            RenderProductionRecipe(recipes, b, recipe);
+        RenderProductionStock(stock);
+        RenderJewelryStock(stock);
+        RenderGuildUpgrade(b);
+    }
+
+    private void RenderProductionOrders(VisualElement parent, Building building)
+    {
+        bool forge = building.buildingType == BuildingType.Forge;
+        if (!forge && building.activeTasks.Count == 0) return;
+        Text(parent, "COMMANDES EN COURS", "subheading");
+        if (building.activeTasks.Count == 0) Text(parent, "Aucune commande en cours.", "card-meta");
+        foreach (var task in building.activeTasks)
         {
-            var card = Card(recipes, task.recipe?.recipeName ?? task.recipeId);
-            Text(card, "Artisan : " + (adventurers.GetById(task.assignedAdventurerId)?.adventurerName ?? "absent"), "card-meta");
+            var card = Card(parent, task.recipe?.recipeName ?? task.recipeId);
+            var details = card;
+            var actions = card;
+            if (forge)
+            {
+                var layout = new VisualElement();
+                layout.AddToClassList("row");
+                layout.AddToClassList("forge-order-layout");
+                card.Add(layout);
+                details = new VisualElement();
+                details.AddToClassList("forge-order-details");
+                layout.Add(details);
+                actions = new VisualElement();
+                actions.AddToClassList("forge-order-actions");
+                layout.Add(actions);
+            }
+
+            string name = adventurers.GetById(task.assignedAdventurerId)?.adventurerName ?? "Absent";
+            string technique = forge ? $" · {ForgeTechniqueLabel(task.forgeTechnique)}" : "";
+            Text(details, name + technique, "card-meta");
             if (task.IsSeries)
             {
-                var units = Text(card, "", "tag");
+                var units = Text(details, SeriesStatus(task), "tag");
                 _liveUpdates.Add(() => units.text = SeriesStatus(task));
             }
+
             var progress = new ProgressBar { lowValue = 0, highValue = 100 };
-            progress.AddToClassList("task-progress"); card.Add(progress);
-            _liveUpdates.Add(() =>
+            progress.AddToClassList("task-progress");
+            details.Add(progress);
+            void RefreshProgress()
             {
                 progress.value = task.ProgressPercent;
-                progress.title = !b.IsActive ? "Suspendue pendant l’amélioration" : !b.HasWorker(task.assignedAdventurerId)
-                    ? "En pause · réaffectez cet artisan ici" : task.awaitingInputs
-                        ? buildings.GetProductionSupplyIssue(task.recipe, task.ComponentBlockReason) ?? "Prête à reprendre"
+                progress.title = !building.IsActive ? "Suspendue pendant l’amélioration" : !building.HasWorker(task.assignedAdventurerId)
+                    ? "En pause · réaffectez cet aventurier ici" : task.awaitingInputs
+                        ? buildings.GetProductionSupplyIssue(task.recipe, task.ComponentBlockReason, task.forgeTechnique) ?? "Prête à reprendre"
                         : $"Fabrication · {task.ProgressPercent:0} %";
-            });
-            ActionButton(card, task.IsSeries ? "Arrêter la série maintenant" : task.awaitingInputs ? "Annuler la commande" : "Annuler et récupérer les composants",
-                () => { buildings.CancelProduction(b.buildingId, task.taskId); MarkDirty(); });
+            }
+            RefreshProgress();
+            _liveUpdates.Add(RefreshProgress);
+
+            ActionButton(actions, task.IsSeries ? "Arrêter maintenant" : task.awaitingInputs ? "Annuler la commande" : "Annuler et récupérer les composants",
+                () => { buildings.CancelProduction(building.buildingId, task.taskId); MarkDirty(); });
             if (task.IsSeries && !task.stopAfterCurrentUnit && (task.HasNextUnit || task.awaitingInputs))
             {
-                var stop = ActionButton(card, "Arrêter après la pièce en cours", () =>
+                var stop = ActionButton(actions, "Arrêter après cette pièce", () =>
                 {
-                    if (!buildings.StopSeriesAfterCurrentUnit(b.buildingId, task.taskId)) return;
+                    if (!buildings.StopSeriesAfterCurrentUnit(building.buildingId, task.taskId)) return;
                     if (task.stopAfterCurrentUnit) MarkDirty();
                     else Notify($"Série arrêtée · {task.recipe?.recipeName ?? task.recipeId} · {task.seriesUnit - 1} pièce(s) fabriquée(s).");
                 });
                 stop.name = "stop-series-after-current";
-                if (task.awaitingInputs) stop.tooltip = "Aucune pièce en cours. La série s'arrêtera maintenant.";
+                if (task.awaitingInputs) stop.tooltip = "Aucune pièce en cours. La série s’arrêtera maintenant.";
             }
         }
-        Text(recipes, "CARNET DE RECETTES", "subheading");
-        foreach (var recipe in buildings.GetRecipesForJob(b.definition.associatedJobType))
-            RenderProductionRecipe(recipes, b, recipe);
+    }
+
+    private void RenderProductionStock(VisualElement stock)
+    {
         Text(stock, "MATÉRIAUX EN RÉSERVE", "subheading");
         Text(stock, $"Équipement · {inventory.EquipmentCount}/{inventory.EquipmentCapacity}", "tag");
         foreach (var material in inventory.ResourceDefinitions)
             Text(stock, $"{material.resourceName} · {inventory.GetAmount(material)}", "card-meta");
-        if (b.buildingType == BuildingType.Forge) _equipmentPanel.RenderRepairs(_content);
-        else RenderJewelryStock(stock);
-        RenderGuildUpgrade(b);
     }
 
     private Adventurer FindFreeWorker(Building b, CraftRecipeSO recipe)
@@ -440,7 +489,7 @@ public partial class GuildWorkshopUI : MonoBehaviour
         Heading("LES AFFAIRES REPRENNENT", "Le marché");
         RenderTradeStaff(BuildingType.Market);
         if (economy.HasActiveMerchant)
-            Text(_content, $"Ventes +{economy.MarketSaleBonus:P0} grâce au meilleur marchand en poste.", "card-meta");
+            Text(_content, $"Prix de vente brut +{economy.MarketSaleBonus:P0} · Les prix affichés déduisent la commission du marchand.", "card-meta");
         RenderMarketAutomation();
         Subheading("LES RÉSERVES");
         foreach (var resource in inventory.ResourceDefinitions)
@@ -472,7 +521,7 @@ public partial class GuildWorkshopUI : MonoBehaviour
                 int revenue = economy.GetEquipmentSellPrice(item);
                 if (!economy.SellEquipment(item.equipmentId)) return;
                 _hasSold = true;
-                Notify($"{item.definition.itemName} vendu : +{revenue} or, commission de l’artisan déduite.");
+                Notify($"{item.definition.itemName} vendu · +{revenue} or nets.");
             }, true);
             sell.name = "sell-" + item.equipmentId;
         }
@@ -485,6 +534,7 @@ public partial class GuildWorkshopUI : MonoBehaviour
         _root.Q<Label>("gold").text = $"{economy.CurrentGold:N0} or";
         foreach (var resource in inventory.ResourceDefinitions)
         {
+            if (resource.resourceType != ResourceType.Basic) continue;
             if (!_resourceLabels.TryGetValue(resource, out var value))
             {
                 var block = new VisualElement(); block.AddToClassList("resource");
@@ -494,8 +544,9 @@ public partial class GuildWorkshopUI : MonoBehaviour
             }
             value.text = inventory.GetAmount(resource).ToString();
         }
-        var elapsed = TimeSpan.FromSeconds(clock.ElapsedGameTime);
-        _root.Q<Label>("clock").text = (clock.CurrentSpeed == GameSpeed.Paused ? "EN PAUSE · " : "") + $"{(int)elapsed.TotalMinutes:00}:{elapsed.Seconds:00}";
+        var date = _root.Q<Label>("clock");
+        date.text = $"An {clock.Year} · Mois {clock.Month:00} · Jour {clock.Day:00} · {clock.Hour:00} h";
+        date.tooltip = $"À ×1, 1 seconde réelle = 1 heure de jeu. Paie le 1er du mois · {economy.MonthlyPayroll} or.";
         var pause = _root.Q<Button>("pause");
         pause.text = clock.CurrentSpeed == GameSpeed.Paused ? "Reprendre" : "Pause";
         string[] names = { "pause", "speed-1", "speed-2", "speed-3" };
@@ -612,6 +663,8 @@ public partial class GuildWorkshopUI : MonoBehaviour
         _stockFullNotified = false;
         _recipeToReveal = null;
         _seriesQuantities.Clear();
+        _forgeSelections.Clear();
+        _forgeFilter = null;
         CloseReplacement();
         if (_content is ScrollView scroll) scroll.scrollOffset = Vector2.zero;
         _root.Q<Label>("status").text = "Votre première commande vous attend.";
@@ -634,26 +687,34 @@ public partial class GuildWorkshopUI : MonoBehaviour
     {
         _hasCrafted = true;
         MarkDirty();
-        if (task.recipe == null || task.HasNextUnit) return;
+        if (task.recipe == null) return;
+        string commission = task.LastCommission > 0 ? $" Commission de fabrication · {task.LastCommission} or." : "";
+        if (task.HasNextUnit)
+        {
+            if (task.LastCommission > 0)
+                Notify($"{task.recipe.recipeName} · pièce {task.seriesUnit}/{task.seriesQuantity} terminée.{commission}");
+            return;
+        }
         var recipe = task.recipe;
         string message = task.stopAfterCurrentUnit ? $"Série arrêtée après fabrication · {recipe.recipeName} ×{task.seriesUnit}."
             : task.IsSeries ? $"Série terminée · {recipe.recipeName} ×{task.seriesQuantity}."
             : $"{recipe.recipeName} · fabrication terminée (qualité {QualityLabel(task.rolledQuality)}).";
         var worker = adventurers.GetById(task.assignedAdventurerId);
+        var technique = task.forgeTechnique;
         int quantity = task.IsSeries ? task.seriesQuantity
             : _seriesQuantities.TryGetValue(recipe, out int saved) && saved >= 2 ? saved : 5;
         bool WorkerNeedsOrder() => worker != null && adventurers.GetById(worker.id) == worker
             && b.HasWorker(worker.id) && buildings.GetTaskForWorker(worker.id) == null;
-        AddDecision(message, WorkerNeedsOrder, new JournalAction
+        AddDecision(message + commission, WorkerNeedsOrder, new JournalAction
         {
             Label = "Relancer une série",
             GetBlockedReason = () => !WorkerNeedsOrder() || !b.IsActive ? "Artisan ou bâtiment indisponible."
-                : buildings.CanQueueProduction(recipe) ? null : buildings.GetProductionSupplyIssue(recipe),
-            Resolve = () => StartCraft(b, recipe, quantity, worker)
+                : buildings.GetProductionStartIssue(worker, b, recipe, technique),
+            Resolve = () => StartCraft(b, recipe, quantity, worker, technique)
         }, new JournalAction
         {
             Label = b.buildingType == BuildingType.Forge ? "Aller à la forge" : "Aller à l’atelier",
-            Execute = () => OpenProductionRecipe(b.buildingType, recipe)
+            Execute = () => OpenProductionRecipe(b.buildingType, recipe, worker, technique)
         }, IgnoreDecision());
     }
     private void HandleProductionBlocked(Building building, ProductionTask task, string reason)
@@ -663,10 +724,13 @@ public partial class GuildWorkshopUI : MonoBehaviour
             Label = "Ouvrir le marché",
             Execute = ShowMarket
         }, blocksProgress: true, needsDecision: () => building.activeTasks.Contains(task) && task.awaitingInputs
-            && !inventory.HasResources(task.recipe.inputResources));
+            && !inventory.HasResources(task.InputResources));
     }
     private void HandleUpgrade(Building b) => Notify($"{b.definition.buildingName} atteint le niveau {b.currentLevel}.");
     private void HandleGold(int amount) => MarkDirty();
+    private void HandlePayroll(int amount) => Notify($"Paie du mois {clock.Month} · {amount} or versés aux aventuriers.");
+    private void HandleRecruitSourced(RecruitOffer offer, int commission)
+        => Notify($"{offer.recruiterName} a trouvé {offer.candidate.adventurerName} · niv. {offer.candidate.stats.level} · {commission} or de commission.");
     private void HandleResource(ResourceSO resource, int amount) => MarkDirty();
     private void HandleEquipment(EquipmentInstance item) { CheckEquipmentStock(); MarkDirty(); }
     private void HandleEquipmentRemoved(string id) { CheckEquipmentStock(); MarkDirty(); }

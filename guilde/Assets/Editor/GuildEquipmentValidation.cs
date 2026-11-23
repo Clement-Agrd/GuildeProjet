@@ -144,7 +144,6 @@ public static class GuildEquipmentValidation
             Check(equipment.TryEquip(mage, restricted.equipmentId, out _), "La classe autorisée peut porter l'objet restreint");
 
             var passiveClass = UnityEngine.Object.Instantiate(warriorClass); temporary.Add(passiveClass);
-            passiveClass.baseStats = new AdventurerStats { force = 10 };
             passiveClass.classPassives = new() { new TraitEffect { effectType = TraitEffectType.Force_Multiplier, value = 1.5f },
                 new TraitEffect { effectType = TraitEffectType.Moral_Flat, value = 5f } };
             var trait1 = ScriptableObject.CreateInstance<TraitSO>(); temporary.Add(trait1);
@@ -154,6 +153,7 @@ public static class GuildEquipmentValidation
             trait2.effects = new() { new TraitEffect { effectType = TraitEffectType.Force_Multiplier, value = 1.1f },
                 new TraitEffect { effectType = TraitEffectType.Fatigue_Flat, value = 15f } };
             var subject = new Adventurer("Validation", passiveClass, human, new() { trait1, trait2 });
+            subject.stats.force = 10;
             var effective = subject.GetEffectiveStats();
             Check(effective.force == 20 && effective.moral == 85 && effective.fatigue == 15,
                 "Traits et passifs : multiplicateurs composés et bonus plats additionnés");

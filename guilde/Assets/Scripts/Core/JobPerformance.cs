@@ -34,11 +34,11 @@ public static class JobPerformance
             JobEffectType.ForgeQuality or JobEffectType.WorkshopQuality or JobEffectType.TrainedRecruitChance
                 => (PrimaryStat.Chance, 0.005f, 0f),
             JobEffectType.SalePrice => (PrimaryStat.Charisme, 0.01f, 0f),
-            JobEffectType.HealingSpeed or JobEffectType.TavernRecovery => (PrimaryStat.Sagesse, 0.02f, 0.5f),
+            JobEffectType.HealingSpeed or JobEffectType.TavernRecovery => (PrimaryStat.Sagesse, 0.02f, 0f),
             JobEffectType.RecruitmentSpeed => (PrimaryStat.Charisme, 0.02f, 0f),
-            JobEffectType.TrainingSpeed => (PrimaryStat.Resistance, 0.02f, 0.5f),
-            JobEffectType.ScoutingSpeed => (PrimaryStat.Agilite, 0.01f, 1f),
-            JobEffectType.ScoutingQuality => (PrimaryStat.Chance, 0.005f, 0.25f),
+            JobEffectType.TrainingSpeed => (PrimaryStat.Resistance, 0.02f, 0f),
+            JobEffectType.ScoutingSpeed => (PrimaryStat.Agilite, 0.01f, 0f),
+            JobEffectType.ScoutingQuality => (PrimaryStat.Chance, 0.005f, 0f),
             JobEffectType.WorkFatigue => (PrimaryStat.Vitalite, -0.03f, 5f),
             _ => throw new System.ArgumentOutOfRangeException(nameof(effect))
         };
@@ -62,7 +62,8 @@ public static class JobPerformance
         return new JobEffectBreakdown(stat, statValue, baseValue, statValue * perPoint, raceBonus, levelBonus, minimum, maximum);
     }
 
-    public static (float Duration, float QualityBonus) GetCrafting(Adventurer worker, CraftRecipeSO recipe, JobDefinitionSO definition)
+    public static (float Duration, float QualityBonus) GetCrafting(Adventurer worker, CraftRecipeSO recipe, JobDefinitionSO definition,
+        ForgeTechnique technique = ForgeTechnique.Standard)
     {
         var (efficiency, quality) = recipe.requiredJob switch
         {
@@ -76,7 +77,7 @@ public static class JobPerformance
                 worker.GetJobInstance(recipe.requiredJob)?.GetEfficiencyBonus(definition) ?? 0f,
                 worker.GetJobInstance(recipe.requiredJob)?.GetQualityBonus(definition) ?? 0f)
         };
-        return (Mathf.Max(0.1f, recipe.GetActualDuration(efficiency)), quality);
+        return (Mathf.Max(0.1f, recipe.GetActualDuration(efficiency, technique)), quality);
     }
 
     public static float HealingBonus(Adventurer healer) => GetEffect(healer, JobEffectType.HealingSpeed).Total;
